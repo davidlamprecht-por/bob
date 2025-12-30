@@ -12,9 +12,11 @@ func (o *Orchestrator) Init(){
 
 }
 
-func (o *Orchestrator) HandleUserMessage(message Message, responder func(response Response)error) string {
+func (o *Orchestrator) HandleUserMessage(message Message, responder func(response Response)error) error {
+	// TODO: Handle bursts of messages by only processing them after 1-2s as one
+
 	// Potentially need to load from DB, think about caching.
-	context := Context{}
+	context := GetContext(message)
 
 	// Identify intend from user with AI
 	// - Use current workflow state as context
@@ -24,34 +26,30 @@ func (o *Orchestrator) HandleUserMessage(message Message, responder func(respons
 	intend := Intend{}
 
 	initialActions := ProcessUserIntend(intend)
-	finalMessage := StartHandlingActions(initialActions, context, message, responder)
-	return finalMessage
+	err := StartHandlingActions(initialActions, context, responder)
+	return err
 }
 
 func ProcessUserIntend(intend Intend) []Action{
 	return nil
 }
 
-func StartHandlingActions(actionQueue []Action, context Context, message Message, responder func(response Response)error) error{
+func StartHandlingActions(actionQueue []Action, context *Context, responder func(response Response)error) error{
 	for len(actionQueue) > 0 {
-		// Popleft steps
+		// -- Popleft steps
 		currentAction := actionQueue[0]
 		actionQueue = actionQueue[1:]
+		// --
 
-		newActions := ProcessAction(currentAction, context, message, responder)
+		newActions := currentAction.ProcessAction(context, responder)
 		actionQueue = append(actionQueue, newActions...)
 	}
 	return nil
 }
 
-func ProcessAction(action Action, context Context, message Message, responder func(response Response)error) []Action{
-	
-
-	return nil
-}
 
 // CanExecute Helps identify if the app can do certain actions on behalf of the user
-func (o *Orchestrator) CanExecute(action Action, ctx Context) bool {
+func (o *Orchestrator) CanExecute(action Action, ctx *Context) bool {
   // default allow for now
   return true
 }

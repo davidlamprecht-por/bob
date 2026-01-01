@@ -43,9 +43,9 @@ func (a *Action) ProcessAction(context *Context, responder func(response Respons
 
 	case ActionUserWait:
 		// Blocking message to user - wait for response
-		context.CurrentStatus = StatusWaitForUser // Signal to stop main loop
+		context.SetCurrentStatus(StatusWaitForUser) // Signal to stop main loop
 		if msg, ok := a.Input["message"].(string); ok {
-			context.RequestToUser = msg
+			context.SetRequestToUser(msg)
 			responder(Response{Message: msg})
 		} else {
 			// Okay this is an issue and something has gone wrong because we are supposed to have something for the user

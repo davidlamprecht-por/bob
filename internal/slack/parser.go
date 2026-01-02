@@ -5,19 +5,7 @@ import (
 	"time"
 )
 
-func ParseMessage(userId, threadId, text string, ts time.Time) (*orchestrator.Message, error) {
+func ParseMessage(userID, threadID, text string, ts time.Time) (*orchestrator.Message, error) {
 	// This stub exists for future development
-	return &orchestrator.Message{
-		UserID: &orchestrator.PlatformRef{
-			Platform:   orchestrator.PlatformSlack,
-			ExternalID: userId,
-		},
-		ThreadID: &orchestrator.PlatformRef{
-			Platform:   orchestrator.PlatformSlack,
-			ExternalID: threadId,
-		},
-
-		Message:   text,
-		Timestamp: ts,
-	}, nil
+	return orchestrator.NewMessage(userID, threadID, orchestrator.PlatformSlack, text, ts), nil
 }

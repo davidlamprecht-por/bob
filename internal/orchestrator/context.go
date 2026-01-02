@@ -1,12 +1,19 @@
 package orchestrator
 
 import (
+	"log"
 	"sync"
 	"time"
+
+	"bob/internal/database"
 )
 
 type ConversationContext struct {
 	mu sync.RWMutex
+
+	// Identity (resolved once at load time)
+	userID   int // Internal DB ID
+	threadID int // Internal DB ID
 
 	currentWorkflow  *WorkflowContext
 	currentStatus    ContextStatus
@@ -133,6 +140,7 @@ const (
 )
 
 type WorkflowContext struct {
+	Id           int
 	WorkflowName string
 	Step         string
 
@@ -144,8 +152,16 @@ func NewWorkflow(name string) *WorkflowContext {
 }
 
 func LoadContext(refMessage *Message) *ConversationContext {
-	userID := refMessage.UserID.ExternalID
-	threadID := refMessage.ThreadID.ExternalID
+	uID, tID, err := refMessage.GetResolved()
+	if err != nil {
+		log.Printf("ERROR: Failed to resolve IDs: %v", err)
+		return nil
+	}
+	if uID == nil || tID == nil {
+		log.Printf("something went wrong when loading user and thread")
+		return nil
+	}
+	userID, threadID := *uID, *tID
 
 	// 1. Check cache first (hot)
 	context := GetFromCache(userID, threadID)
@@ -155,11 +171,13 @@ func LoadContext(refMessage *Message) *ConversationContext {
 	}
 
 	// 2. Load from DB (cold)
-	context = loadContextFromDB(refMessage)
+	context = loadContextFromDB(userID, threadID)
 
 	// 3. If not found, create new
 	if context == nil {
 		context = &ConversationContext{
+			userID:          userID,
+			threadID:        threadID,
 			currentWorkflow: nil,
 			currentStatus:   StatusIdle,
 			lastUpdated:     time.Now(),
@@ -175,19 +193,89 @@ func LoadContext(refMessage *Message) *ConversationContext {
 	return context
 }
 
-func loadContextFromDB(refMessage *Message) *ConversationContext {
-	// TODO: Query DB by user id and thread id
-	// TODO: Load persisted context if exists
-	// TODO: Add refMessage to LastUserMessages
+func loadContextFromDB(userID, threadID int) *ConversationContext {
+	// Create repository
+	repo := database.NewContextRepository(database.DB)
 
-	return nil
+	// Load from DB using internal IDs
+	dbContext, err := repo.LoadContext(userID, threadID)
+
+	if err != nil {
+		log.Printf("ERROR: Failed to load context from DB: %v", err)
+		return nil
+	}
+
+	if dbContext == nil {
+		return nil
+	}
+
+	// Convert database.WorkflowContext to orchestrator.WorkflowContext
+	var wf *WorkflowContext
+	if dbContext.Workflow != nil {
+		wf = &WorkflowContext{
+			Id:           *dbContext.Workflow.ID,
+			WorkflowName: dbContext.Workflow.WorkflowName,
+			Step:         dbContext.Workflow.Step,
+			WorkflowData: dbContext.Workflow.WorkflowData,
+		}
+	}
+
+	// Reconstruct ConversationContext with resolved IDs
+	ctx := &ConversationContext{
+		userID:   userID,
+		threadID: threadID,
+
+		currentWorkflow:  wf,
+		currentStatus:    ContextStatus(dbContext.ContextStatus),
+		lastUserMessages: []*Message{}, // Not persisted, starts empty
+		remainingActions: nil,          // Action queue not persisted
+		requestToUser:    dbContext.RequestToUser,
+		lastUpdated:      time.Now(), // Set to now on load
+		createdAt:        time.Now(), // Not persisted, approximate
+	}
+
+	return ctx
 }
 
 func (context *ConversationContext) UpdateDB() error {
-	// TODO: Serialize and save context to DB
-	// TODO: Store by user id + thread id
-	// TODO: Include timestamp
-	// TODO: Do not include ActionQueue
+	// Acquire read lock to read context state
+	context.mu.RLock()
+	currentWorkflow := context.currentWorkflow
+
+	// Create repository
+	repo := database.NewContextRepository(database.DB)
+
+	// Convert orchestrator.WorkflowContext to database.WorkflowContext
+	var dbWorkflow *database.WorkflowContext
+	if currentWorkflow != nil {
+		dbWorkflow = &database.WorkflowContext{
+			ID:           &currentWorkflow.Id,
+			WorkflowName: currentWorkflow.WorkflowName,
+			Step:         currentWorkflow.Step,
+			WorkflowData: currentWorkflow.WorkflowData,
+		}
+	}
+
+	// Save to DB (using internal IDs)
+	var dbContext *database.Context = &database.Context{
+		UserID:        context.userID,
+		ThreadID:      context.threadID,
+		ContextStatus: string(context.currentStatus),
+		RequestToUser: context.requestToUser,
+		Workflow:      dbWorkflow,
+	}
+	context.mu.RUnlock()
+	updatedWorkflowID, err := repo.SaveContext(dbContext)
+	if err != nil {
+		return err
+	}
+
+	// Update workflow DB ID if it changed
+	if updatedWorkflowID != nil && context.currentWorkflow != nil {
+		context.mu.Lock()
+		context.currentWorkflow.Id = *updatedWorkflowID
+		context.mu.Unlock()
+	}
 
 	return nil
 }

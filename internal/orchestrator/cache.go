@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"log"
 	"sort"
 	"sync"
@@ -13,12 +14,12 @@ var contextCache = make(map[string]*ConversationContext)
 var cacheMutex sync.RWMutex
 
 // cacheKey generates unique key for user+thread
-func cacheKey(userID, threadID string) string {
-	return userID + ":" + threadID
+func cacheKey(userID, threadID int) string {
+	return fmt.Sprintf("%d:%d", userID, threadID)
 }
 
 // GetFromCache retrieves context (thread-safe)
-func GetFromCache(userID, threadID string) *ConversationContext {
+func GetFromCache(userID, threadID int) *ConversationContext {
 	cacheMutex.RLock()
 	defer cacheMutex.RUnlock()
 
@@ -29,7 +30,7 @@ func GetFromCache(userID, threadID string) *ConversationContext {
 }
 
 // PutInCache stores context with eviction logic (thread-safe)
-func PutInCache(userID, threadID string, ctx *ConversationContext) {
+func PutInCache(userID, threadID int, ctx *ConversationContext) {
 	cacheMutex.Lock()
 	defer cacheMutex.Unlock()
 
@@ -47,7 +48,7 @@ func PutInCache(userID, threadID string, ctx *ConversationContext) {
 }
 
 // RemoveFromCache deletes context (thread-safe)
-func RemoveFromCache(userID, threadID string) {
+func RemoveFromCache(userID, threadID int) {
 	cacheMutex.Lock()
 	defer cacheMutex.Unlock()
 	delete(contextCache, cacheKey(userID, threadID))
@@ -125,7 +126,12 @@ func evictToLimit() {
 			return
 		}
 		c.entry.SetCurrentStatus(StatusEvicted)
-		// TODO: saveContextToDB(c.entry.context)
+
+		// Save to DB before eviction
+		if err := c.entry.UpdateDB(); err != nil {
+			log.Printf("ERROR: Failed to save evicted WaitForUser context to DB: %v (key: %s)", err, c.key)
+		}
+
 		delete(contextCache, c.key)
 		log.Printf("WARNING: High traffic - evicted StatusWaitForUser context: %s", c.key)
 	}
@@ -145,7 +151,12 @@ func evictToLimit() {
 			if status != StatusIdle && status != StatusError {
 				// Mark as evicted for non-idle/error contexts
 				c.entry.SetCurrentStatus(StatusEvicted)
-				// TODO: saveContextToDB(c.entry.context)
+
+				// Save to DB before eviction
+				if err := c.entry.UpdateDB(); err != nil {
+					log.Printf("ERROR: Failed to save emergency evicted context to DB: %v (key: %s)", err, c.key)
+				}
+
 				log.Printf("ERROR: Emergency evicted %s context: %s", status, c.key)
 			}
 

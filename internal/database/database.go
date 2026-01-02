@@ -1,3 +1,6 @@
+/*
+Package database layer handles all our fetching and updating of persistent data
+*/ 
 package database
 
 import (

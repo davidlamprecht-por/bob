@@ -12,10 +12,10 @@ func (o *Orchestrator) Init(){
 
 }
 
-func (o *Orchestrator) HandleUserMessage(message Message, responder func(response Response)error) error {
+func (o *Orchestrator) HandleUserMessage(message *Message, responder func(response Response)error) error {
 	// TODO: Handle bursts of messages by only processing them after 1-2s as one
 
-	context := LoadContext(&message)
+	context := LoadContext(message)
 
 	if msg := handleEvictedContext(context, message) ; msg != "" {
 		responder(Response{Message: msg})
@@ -39,7 +39,7 @@ func (o *Orchestrator) HandleUserMessage(message Message, responder func(respons
 }
 
 // AnalyzeIntent determines if message is answering a question or starting new request (stub)
-func AnalyzeIntent(message Message, context *ConversationContext) Intent {
+func AnalyzeIntent(message *Message, context *ConversationContext) Intent {
 	// TODO
 	// Give the ai all the things it needs to know to identify user intend
 	// ContextStatus (is it already running and the user wants to interject, is it a new request, an answer?),
@@ -53,7 +53,7 @@ func AnalyzeIntent(message Message, context *ConversationContext) Intent {
 }
 
 // handleEvictedContext handles context that was evicted from cache (stub for smart recovery)
-func handleEvictedContext(context *ConversationContext, _ Message) string {
+func handleEvictedContext(context *ConversationContext, _ *Message) string {
 	// Special handling for evicted contexts
 	if context.GetCurrentStatus() == StatusEvicted {
 		// This is a stub. Later we need smarter handling of the eviction process

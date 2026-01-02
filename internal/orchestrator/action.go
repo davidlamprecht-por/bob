@@ -11,7 +11,7 @@ type Action struct {
 	AsyncGroupSize int                    // Number of expected results in this group (1 if not async)
 
 	// Generic data carrier
-	Input map[string]interface{}
+	Input map[string]any
 
 	AsyncActions []Action
 }
@@ -28,7 +28,7 @@ const (
 	ActionAsync
 )
 
-func (a *Action) ProcessAction(context *Context, responder func(response Response)error, actionChan chan<- Action) ([]Action, error){
+func (a *Action) ProcessAction(context *ConversationContext, responder func(response Response)error, actionChan chan<- Action) ([]Action, error){
 	switch a.ActionType{
 	case ActionWorkflow:
 	case ActionWorkflowResult:
@@ -49,7 +49,7 @@ func (a *Action) ProcessAction(context *Context, responder func(response Respons
 			responder(Response{Message: msg})
 		} else {
 			// Okay this is an issue and something has gone wrong because we are supposed to have something for the user
-			return nil, errors.New("Expecting a message for the user but didn't receive one")
+			return nil, errors.New("expecting a message for the user but didn't receive one")
 		}
 
 	case ActionAsync:

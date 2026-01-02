@@ -9,7 +9,7 @@ import (
 	"bob/internal/config"
 )
 
-var contextCache = make(map[string]*Context)
+var contextCache = make(map[string]*ConversationContext)
 var cacheMutex sync.RWMutex
 
 // cacheKey generates unique key for user+thread
@@ -18,7 +18,7 @@ func cacheKey(userID, threadID string) string {
 }
 
 // GetFromCache retrieves context (thread-safe)
-func GetFromCache(userID, threadID string) *Context {
+func GetFromCache(userID, threadID string) *ConversationContext {
 	cacheMutex.RLock()
 	defer cacheMutex.RUnlock()
 
@@ -29,7 +29,7 @@ func GetFromCache(userID, threadID string) *Context {
 }
 
 // PutInCache stores context with eviction logic (thread-safe)
-func PutInCache(userID, threadID string, ctx *Context) {
+func PutInCache(userID, threadID string, ctx *ConversationContext) {
 	cacheMutex.Lock()
 	defer cacheMutex.Unlock()
 
@@ -58,7 +58,7 @@ func evictToLimit() {
 	// Collect eviction candidates by priority
 	type candidate struct {
 		key      string
-		entry    *Context
+		entry    *ConversationContext
 		lastUsed time.Time
 	}
 

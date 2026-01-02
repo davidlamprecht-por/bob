@@ -39,7 +39,7 @@ func (o *Orchestrator) HandleUserMessage(message Message, responder func(respons
 }
 
 // AnalyzeIntent determines if message is answering a question or starting new request (stub)
-func AnalyzeIntent(message Message, context *Context) Intent {
+func AnalyzeIntent(message Message, context *ConversationContext) Intent {
 	// TODO
 	// Give the ai all the things it needs to know to identify user intend
 	// ContextStatus (is it already running and the user wants to interject, is it a new request, an answer?),
@@ -53,7 +53,7 @@ func AnalyzeIntent(message Message, context *Context) Intent {
 }
 
 // handleEvictedContext handles context that was evicted from cache (stub for smart recovery)
-func handleEvictedContext(context *Context, message Message) string {
+func handleEvictedContext(context *ConversationContext, _ Message) string {
 	// Special handling for evicted contexts
 	if context.GetCurrentStatus() == StatusEvicted {
 		// This is a stub. Later we need smarter handling of the eviction process
@@ -69,7 +69,7 @@ func ProcessUserIntent(intent Intent) []Action{
 	return nil
 }
 
-func StartHandlingActions(actionQueue []Action, context *Context, responder func(response Response)error) error{
+func StartHandlingActions(actionQueue []Action, context *ConversationContext, responder func(response Response)error) error{
 	// Channel for goroutines to send actions back to main loop
 	actionChan := make(chan Action, 100)
 
@@ -123,7 +123,7 @@ func StartHandlingActions(actionQueue []Action, context *Context, responder func
 	return nil
 }
 
-func RouteUserMessage (context *Context, intent *Intent, actions []Action) (startNewLoop bool) {
+func RouteUserMessage (context *ConversationContext, intent *Intent, actions []Action) (startNewLoop bool) {
 	// Case 1: Context exists and we're waiting for user response
 	if context != nil && context.GetCurrentStatus() == StatusWaitForUser {
 		if intent.IntentType == IntentNewRequest{
@@ -148,7 +148,7 @@ func RouteUserMessage (context *Context, intent *Intent, actions []Action) (star
 
 
 // CanExecute Helps identify if the app can do certain actions on behalf of the user
-func (o *Orchestrator) CanExecute(action Action, ctx *Context) bool {
+func (o *Orchestrator) CanExecute(action Action, ctx *ConversationContext) bool {
   // default allow for now
   return true
 }

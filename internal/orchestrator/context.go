@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-type Context struct {
+type ConversationContext struct {
 	mu sync.RWMutex
 
 	currentWorkflow  *WorkflowContext
@@ -22,72 +22,74 @@ type Context struct {
 }
 
 // Getters
-func (c *Context) GetCurrentWorkflow() *WorkflowContext {
+
+func (c *ConversationContext) GetCurrentWorkflow() *WorkflowContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.currentWorkflow
 }
 
-func (c *Context) GetCurrentStatus() ContextStatus {
+func (c *ConversationContext) GetCurrentStatus() ContextStatus {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.currentStatus
 }
 
-func (c *Context) GetLastUserMessages() []*Message {
+func (c *ConversationContext) GetLastUserMessages() []*Message {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.lastUserMessages
 }
 
-func (c *Context) GetRemainingActions() []Action {
+func (c *ConversationContext) GetRemainingActions() []Action {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.remainingActions
 }
 
-func (c *Context) GetRequestToUser() string {
+func (c *ConversationContext) GetRequestToUser() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.requestToUser
 }
 
-func (c *Context) GetLastUpdated() time.Time {
+func (c *ConversationContext) GetLastUpdated() time.Time {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.lastUpdated
 }
 
 // Setters
-func (c *Context) SetCurrentWorkflow(wf *WorkflowContext) {
+
+func (c *ConversationContext) SetCurrentWorkflow(wf *WorkflowContext) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.currentWorkflow = wf
 	c.lastUpdated = time.Now()
 }
 
-func (c *Context) SetCurrentStatus(status ContextStatus) {
+func (c *ConversationContext) SetCurrentStatus(status ContextStatus) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.currentStatus = status
 	c.lastUpdated = time.Now()
 }
 
-func (c *Context) SetLastUserMessages(messages []*Message) {
+func (c *ConversationContext) SetLastUserMessages(messages []*Message) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastUserMessages = messages
 	c.lastUpdated = time.Now()
 }
 
-func (c *Context) SetRemainingActions(actions []Action) {
+func (c *ConversationContext) SetRemainingActions(actions []Action) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.remainingActions = actions
 	c.lastUpdated = time.Now()
 }
 
-func (c *Context) SetRequestToUser(request string) {
+func (c *ConversationContext) SetRequestToUser(request string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requestToUser = request
@@ -95,14 +97,15 @@ func (c *Context) SetRequestToUser(request string) {
 }
 
 // Helper methods
-func (c *Context) AppendUserMessage(msg *Message) {
+
+func (c *ConversationContext) AppendUserMessage(msg *Message) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastUserMessages = append(c.lastUserMessages, msg)
 	c.lastUpdated = time.Now()
 }
 
-func (c *Context) AppendRemainingActions(actions []Action) {
+func (c *ConversationContext) AppendRemainingActions(actions []Action) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.remainingActions = append(c.remainingActions, actions...)
@@ -110,7 +113,7 @@ func (c *Context) AppendRemainingActions(actions []Action) {
 }
 
 // PopRemainingActions atomically gets and clears remaining actions
-func (c *Context) PopRemainingActions() []Action {
+func (c *ConversationContext) PopRemainingActions() []Action {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	actions := c.remainingActions
@@ -133,14 +136,14 @@ type WorkflowContext struct {
 	WorkflowName string
 	Step         string
 
-	WorkflowData map[string]interface{}
+	WorkflowData map[string]any
 }
 
 func NewWorkflow(name string) *WorkflowContext {
 	return &WorkflowContext{WorkflowName: name, Step: "init"}
 }
 
-func LoadContext(refMessage *Message) *Context {
+func LoadContext(refMessage *Message) *ConversationContext {
 	userID := refMessage.UserID.ExternalID
 	threadID := refMessage.ThreadID.ExternalID
 
@@ -156,7 +159,7 @@ func LoadContext(refMessage *Message) *Context {
 
 	// 3. If not found, create new
 	if context == nil {
-		context = &Context{
+		context = &ConversationContext{
 			currentWorkflow: nil,
 			currentStatus:   StatusIdle,
 			lastUpdated:     time.Now(),
@@ -172,7 +175,7 @@ func LoadContext(refMessage *Message) *Context {
 	return context
 }
 
-func loadContextFromDB(refMessage *Message) *Context {
+func loadContextFromDB(refMessage *Message) *ConversationContext {
 	// TODO: Query DB by user id and thread id
 	// TODO: Load persisted context if exists
 	// TODO: Add refMessage to LastUserMessages
@@ -180,7 +183,7 @@ func loadContextFromDB(refMessage *Message) *Context {
 	return nil
 }
 
-func (context *Context) UpdateDB() error {
+func (context *ConversationContext) UpdateDB() error {
 	// TODO: Serialize and save context to DB
 	// TODO: Store by user id + thread id
 	// TODO: Include timestamp

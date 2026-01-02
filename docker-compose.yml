@@ -1,0 +1,14 @@
+services:
+  bob_db:
+    image: mysql:8.0
+    container_name: bob_db
+    environment:
+      MYSQL_ROOT_PASSWORD: youruncle
+      MYSQL_DATABASE: bob_db
+    ports:
+      - "3316:3306"
+    volumes:
+      - bob_db:/var/lib/mysql
+
+volumes:
+  bob_db:

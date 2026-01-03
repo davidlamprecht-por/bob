@@ -3,7 +3,10 @@ Package orchestrator is the heart of Bob the slackbot. It manages how the user i
 */
 package orchestrator
 
-import . "bob/internal/orchestrator/core"
+import (
+	"bob/internal/orchestrator/core"
+	"bob/internal/workflow"
+)
 
 type Orchestrator struct {
 
@@ -14,13 +17,13 @@ func (o *Orchestrator) Init(){
 
 }
 
-func (o *Orchestrator) HandleUserMessage(message *Message, responder func(response Response)error) error {
+func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(response core.Response)error) error {
 	// TODO: Handle bursts of messages by only processing them after 1-2s as one
 
-	context := LoadContext(message)
+	context := core.LoadContext(message)
 
 	if msg := handleEvictedContext(context, message) ; msg != "" {
-		responder(Response{Message: msg})
+		responder(core.Response{Message: msg})
 	}
 
 	intent := AnalyzeIntent(message, context)
@@ -31,7 +34,7 @@ func (o *Orchestrator) HandleUserMessage(message *Message, responder func(respon
 	if !shouldHandleActions{
 		// If we are not starting another run, the AI might have had something to say about it
 		if intent.MessageToUser != nil{
-			responder(Response{Message: *intent.MessageToUser})
+			responder(core.Response{Message: *intent.MessageToUser})
 		}
 		return nil
 	}
@@ -41,7 +44,7 @@ func (o *Orchestrator) HandleUserMessage(message *Message, responder func(respon
 }
 
 // AnalyzeIntent determines if message is answering a question or starting new request (stub)
-func AnalyzeIntent(message *Message, context *ConversationContext) Intent {
+func AnalyzeIntent(message *core.Message, context *core.ConversationContext) core.Intent {
 	// TODO
 	// Give the ai all the things it needs to know to identify user intend
 	// ContextStatus (is it already running and the user wants to interject, is it a new request, an answer?),
@@ -51,54 +54,54 @@ func AnalyzeIntent(message *Message, context *ConversationContext) Intent {
 
 	// Parse it out as intent object
 
-	return Intent{}
+	return core.Intent{}
 }
 
 // handleEvictedContext handles context that was evicted from cache (stub for smart recovery)
-func handleEvictedContext(context *ConversationContext, _ *Message) string {
+func handleEvictedContext(context *core.ConversationContext, _ *core.Message) string {
 	// Special handling for evicted contexts
-	if context.GetCurrentStatus() == StatusEvicted {
+	if context.GetCurrentStatus() == core.StatusEvicted {
 		// This is a stub. Later we need smarter handling of the eviction process
 		return "Sorry, I lost track of our conversation due to high load. Can you remind me what you needed help with?"
 	}
 	return ""
 }
 
-func ProcessUserIntent(intent Intent) []*Action{
-	actions := make([]*Action, 0)
-	a := NewAction(ActionWorkflow)
+func ProcessUserIntent(intent core.Intent) []*core.Action{
+	actions := make([]*core.Action, 0)
+	a := core.NewAction(core.ActionWorkflow)
 	switch intent.IntentType{
-	case IntentNewWorkflow:
-		a.Input[InputStep] = "init"
-	case IntentAnswerQuestion:
-		a.Input[InputStep] = "answer_question"
-	case IntentAskQuestion:
-		a.Input[InputStep] = "ask_question"
+	case core.IntentNewWorkflow:
+		a.Input[core.InputStep] = workflow.StepInit
+	case core.IntentAnswerQuestion:
+		a.Input[core.InputStep] = workflow.StepUserAnsweringQuestion
+	case core.IntentAskQuestion:
+		a.Input[core.InputStep] = workflow.StepUserAsksQuestion
 	}
 	actions = append(actions, a)
 	if *intent.MessageToUser != "" && intent.MessageToUser != nil{
-		a2 := NewAction(ActionUserMessage)
-		a2.Input[InputMessage] = intent.MessageToUser
+		a2 := core.NewAction(core.ActionUserMessage)
+		a2.Input[core.InputMessage] = intent.MessageToUser
 		actions = append(actions, a2)
 	}
-	return nil
+	return actions
 }
 
-func RouteUserMessage (context *ConversationContext, intent *Intent, actions []*Action) (startNewLoop bool) {
+func RouteUserMessage (context *core.ConversationContext, intent *core.Intent, actions []*core.Action) (startNewLoop bool) {
 	// Case 1: Context exists and we're waiting for user response
-	if context != nil && context.GetCurrentStatus() == StatusWaitForUser {
-		if intent.IntentType == IntentNewWorkflow{
+	if context != nil && context.GetCurrentStatus() == core.StatusWaitForUser {
+		if intent.IntentType == core.IntentNewWorkflow{
 			// User is changing direction - start new workflow
 			// TODO: Clear old state, start fresh workflow
-			context.SetCurrentWorkflow(NewWorkflow(intent.WorkflowName))
+			context.SetCurrentWorkflow(core.NewWorkflow(intent.WorkflowName))
 			context.SetRemainingActions(nil)
 		}
-		context.SetCurrentStatus(StatusRunning)
+		context.SetCurrentStatus(core.StatusRunning)
 		return true
 	}
 
 	// Case 2: Context exists and we're actively processing
-	if context != nil && context.GetCurrentStatus() == StatusRunning {
+	if context != nil && context.GetCurrentStatus() == core.StatusRunning {
 		// Add actions to context, we are reusing RemainingActions to solve a similar problem
 		context.AppendRemainingActions(actions)
 		return false
@@ -107,12 +110,12 @@ func RouteUserMessage (context *ConversationContext, intent *Intent, actions []*
 	return true
 }
 
-func StartHandlingActions(actionQueue []*Action, context *ConversationContext, responder func(response Response)error) error{
+func StartHandlingActions(actionQueue []*core.Action, context *core.ConversationContext, responder func(response core.Response)error) error{
 	// Channel for goroutines to send actions back to main loop
-	actionChan := make(chan *Action, 100)
+	actionChan := make(chan *core.Action, 100)
 
 	// Mark as actively running
-	context.SetCurrentStatus(StatusRunning)
+	context.SetCurrentStatus(core.StatusRunning)
 
 	for len(actionQueue) > 0 {
 		// If context still, or again has remaining actions, insert them now!
@@ -120,7 +123,7 @@ func StartHandlingActions(actionQueue []*Action, context *ConversationContext, r
 		actionQueue = append(actionQueue, context.PopRemainingActions()...)
 
 		// Check if we should stop (e.g., hit ActionUserWait)
-		if context.GetCurrentStatus() == StatusWaitForUser {
+		if context.GetCurrentStatus() == core.StatusWaitForUser {
 			// Store remaining actions for resumption
 			context.SetRemainingActions(actionQueue)
 			break
@@ -146,15 +149,15 @@ func StartHandlingActions(actionQueue []*Action, context *ConversationContext, r
 		continueLoop:
 
 		if err != nil {
-			context.SetCurrentStatus(StatusError)
+			context.SetCurrentStatus(core.StatusError)
 			context.SetRemainingActions(actionQueue)
 			return err
 		}
 	}
 
 	// If we finished normally (not waiting), mark as idle
-	if context.GetCurrentStatus() == StatusRunning {
-		context.SetCurrentStatus(StatusIdle)
+	if context.GetCurrentStatus() == core.StatusRunning {
+		context.SetCurrentStatus(core.StatusIdle)
 		context.SetRemainingActions(nil) // just to make sure
 	}
 
@@ -162,7 +165,7 @@ func StartHandlingActions(actionQueue []*Action, context *ConversationContext, r
 }
 
 // CanExecute Helps identify if the app can do certain actions on behalf of the user
-func (o *Orchestrator) CanExecute(action Action, ctx *ConversationContext) bool {
+func (o *Orchestrator) CanExecute(action core.Action, ctx *core.ConversationContext) bool {
   // default allow for now
   return true
 }

@@ -1,3 +1,4 @@
+// Package core deals with Orchestrator related structs that are needed by other layers as well
 package core
 
 import (
@@ -18,6 +19,7 @@ type ConversationContext struct {
 	currentWorkflow  *WorkflowContext
 	currentStatus    ContextStatus
 	lastUserMessages []*Message
+	aiConverstation  *AIConversation
 
 	// State preservation for blocking/resuming
 	remainingActions []*Action
@@ -140,7 +142,7 @@ const (
 )
 
 type WorkflowContext struct {
-	Id           int
+	ID           int
 	WorkflowName string
 	Step         string
 
@@ -213,7 +215,7 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 	var wf *WorkflowContext
 	if dbContext.Workflow != nil {
 		wf = &WorkflowContext{
-			Id:           *dbContext.Workflow.ID,
+			ID:           *dbContext.Workflow.ID,
 			WorkflowName: dbContext.Workflow.WorkflowName,
 			Step:         dbContext.Workflow.Step,
 			WorkflowData: dbContext.Workflow.WorkflowData,
@@ -237,10 +239,10 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 	return ctx
 }
 
-func (context *ConversationContext) UpdateDB() error {
+func (c *ConversationContext) UpdateDB() error {
 	// Acquire read lock to read context state
-	context.mu.RLock()
-	currentWorkflow := context.currentWorkflow
+	c.mu.RLock()
+	currentWorkflow := c.currentWorkflow
 
 	// Create repository
 	repo := database.NewContextRepository(database.DB)
@@ -249,7 +251,7 @@ func (context *ConversationContext) UpdateDB() error {
 	var dbWorkflow *database.WorkflowContext
 	if currentWorkflow != nil {
 		dbWorkflow = &database.WorkflowContext{
-			ID:           &currentWorkflow.Id,
+			ID:           &currentWorkflow.ID,
 			WorkflowName: currentWorkflow.WorkflowName,
 			Step:         currentWorkflow.Step,
 			WorkflowData: currentWorkflow.WorkflowData,
@@ -257,24 +259,24 @@ func (context *ConversationContext) UpdateDB() error {
 	}
 
 	// Save to DB (using internal IDs)
-	var dbContext *database.Context = &database.Context{
-		UserID:        context.userID,
-		ThreadID:      context.threadID,
-		ContextStatus: string(context.currentStatus),
-		RequestToUser: context.requestToUser,
+	var dbContext = &database.Context{
+		UserID:        c.userID,
+		ThreadID:      c.threadID,
+		ContextStatus: string(c.currentStatus),
+		RequestToUser: c.requestToUser,
 		Workflow:      dbWorkflow,
 	}
-	context.mu.RUnlock()
+	c.mu.RUnlock()
 	updatedWorkflowID, err := repo.SaveContext(dbContext)
 	if err != nil {
 		return err
 	}
 
 	// Update workflow DB ID if it changed
-	if updatedWorkflowID != nil && context.currentWorkflow != nil {
-		context.mu.Lock()
-		context.currentWorkflow.Id = *updatedWorkflowID
-		context.mu.Unlock()
+	if updatedWorkflowID != nil && c.currentWorkflow != nil {
+		c.mu.Lock()
+		c.currentWorkflow.ID = *updatedWorkflowID
+		c.mu.Unlock()
 	}
 
 	return nil

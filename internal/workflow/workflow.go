@@ -29,11 +29,24 @@ var workflows = map[WorkflowName]WorkflowDefinition{
 
 type WorkflowName string
 
+const (
+	StepInit = "init"
+	StepUserAsksQuestion = "asking_question"
+	StepUserAnsweringQuestion = "answering_question"
+)
+
+type Option string
+
+const (
+	OptionOverwriteHandleDefaultSteps Option = "overwrite_handle_default_steps" // Assign anything but false
+)
+
 type WorkflowDefinition struct {
 	Name        WorkflowName
 	Description string
 
 	WorkflowFn func(context *core.ConversationContext, sourceAction *core.Action) ([]*core.Action, error)
+	Options map[Option]any
 	// Later some other restrictions etc that ai should know about this workflow
 }
 
@@ -45,10 +58,13 @@ func RunWorkflow(context *core.ConversationContext, sourceAction *core.Action) (
 		return nil, fmt.Errorf("no current workflow set")
 	}
 	wf := WorkflowName(cw.WorkflowName)
-	if workflow, ok := workflows[wf]; ok {
-		return workflow.WorkflowFn(context, sourceAction)
+	workflow, ok := workflows[wf]
+	if !ok {
+		return nil, fmt.Errorf("unknown workflow: %q", wf)
 	}
-	return nil, fmt.Errorf("unknown workflow: %q", wf)
+	// Run Workflow here
+	handleDefaultSteps(workflow, context, sourceAction)
+	return workflow.WorkflowFn(context, sourceAction)
 }
 
 func init() {
@@ -59,6 +75,23 @@ func init() {
 		if def.Description == "" {
 			panic(fmt.Sprintf("workflow %q has empty Description", name))
 		}
+	}
+}
+
+/* handleDefaultSteps will make sure that every workflow allways allows these steps:
+- Init (new workflow has started. Likely do some cleanup, workflow specific init can be done at the beginning of workflow)
+- StepUserAsksQuestion (This should intersect the Workflow without interuppting it and allow for side questions)
+*/
+func handleDefaultSteps(w *WorkflowDefinition, c *core.ConversationContext, a *core.Action){
+	if overwrite, ok := w.Options[OptionOverwriteHandleDefaultSteps] ; ok && overwrite != false{
+		return
+	}
+	step := getInput(a, core.InputStep)
+	switch step{
+	case StepInit:
+	case StepUserAnsweringQuestion:
+	case StepUserAsksQuestion:
+		askAI()
 	}
 }
 

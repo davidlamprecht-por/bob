@@ -1,11 +1,11 @@
 package slack
 
 import (
-	"bob/internal/orchestrator"
+	"bob/internal/orchestrator/core"
 	"time"
 )
 
-func ParseMessage(userID, threadID, text string, ts time.Time) (*orchestrator.Message, error) {
+func ParseMessage(userID, threadID, text string, ts time.Time) (*core.Message, error) {
 	// This stub exists for future development
-	return orchestrator.NewMessage(userID, threadID, orchestrator.PlatformSlack, text, ts), nil
+	return core.NewMessage(userID, threadID, core.PlatformSlack, text, ts), nil
 }

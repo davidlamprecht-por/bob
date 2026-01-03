@@ -1,4 +1,4 @@
-package orchestrator
+package core
 
 import "errors"
 
@@ -11,9 +11,9 @@ type Action struct {
 	AsyncGroupSize int                    // Number of expected results in this group (1 if not async)
 
 	// Generic data carrier
-	Input map[string]any
+	Input map[InputType]any
 
-	AsyncActions []Action
+	AsyncActions []*Action
 }
 
 type ActionType int
@@ -28,7 +28,26 @@ const (
 	ActionAsync
 )
 
-func (a *Action) ProcessAction(context *ConversationContext, responder func(response Response)error, actionChan chan<- Action) ([]Action, error){
+type InputType string
+
+const (
+	InputStep = "step"
+	InputMessage = "message"
+	// TODO: Add more as needed
+)
+
+func NewAction(actionType ActionType) *Action{
+	return &Action{
+		ActionType: actionType,
+		SourceWorkflow: "",
+		AsyncGroupID: "",
+		AsyncGroupSize: 1,
+		Input: nil,
+		AsyncActions: make([]*Action, 0),
+	}
+}
+
+func (a *Action) ProcessAction(context *ConversationContext, responder func(response Response)error, actionChan chan<- *Action) ([]*Action, error){
 	switch a.ActionType{
 	case ActionWorkflow:
 	case ActionWorkflowResult:
@@ -55,7 +74,7 @@ func (a *Action) ProcessAction(context *ConversationContext, responder func(resp
 	case ActionAsync:
 		// Spawn goroutines for each sub-action
 		for _, subAction := range a.AsyncActions {
-			go func(action Action) {
+			go func(action *Action) {
 				// Process the action in parallel
 				newActions, _ := action.ProcessAction(context, responder, actionChan)
 				// Send new actions back to main loop via channel

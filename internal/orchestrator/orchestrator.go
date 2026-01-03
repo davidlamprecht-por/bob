@@ -3,6 +3,8 @@ Package orchestrator is the heart of Bob the slackbot. It manages how the user i
 */
 package orchestrator
 
+import . "bob/internal/orchestrator/core"
+
 type Orchestrator struct {
 
 }
@@ -62,16 +64,52 @@ func handleEvictedContext(context *ConversationContext, _ *Message) string {
 	return ""
 }
 
-
-
-func ProcessUserIntent(intent Intent) []Action{
-	// If MessageToUserIsIncluded, make sure to include action to message user!
+func ProcessUserIntent(intent Intent) []*Action{
+	actions := make([]*Action, 0)
+	a := NewAction(ActionWorkflow)
+	switch intent.IntentType{
+	case IntentNewWorkflow:
+		a.Input[InputStep] = "init"
+	case IntentAnswerQuestion:
+		a.Input[InputStep] = "answer_question"
+	case IntentAskQuestion:
+		a.Input[InputStep] = "ask_question"
+	}
+	actions = append(actions, a)
+	if *intent.MessageToUser != "" && intent.MessageToUser != nil{
+		a2 := NewAction(ActionUserMessage)
+		a2.Input[InputMessage] = intent.MessageToUser
+		actions = append(actions, a2)
+	}
 	return nil
 }
 
-func StartHandlingActions(actionQueue []Action, context *ConversationContext, responder func(response Response)error) error{
+func RouteUserMessage (context *ConversationContext, intent *Intent, actions []*Action) (startNewLoop bool) {
+	// Case 1: Context exists and we're waiting for user response
+	if context != nil && context.GetCurrentStatus() == StatusWaitForUser {
+		if intent.IntentType == IntentNewWorkflow{
+			// User is changing direction - start new workflow
+			// TODO: Clear old state, start fresh workflow
+			context.SetCurrentWorkflow(NewWorkflow(intent.WorkflowName))
+			context.SetRemainingActions(nil)
+		}
+		context.SetCurrentStatus(StatusRunning)
+		return true
+	}
+
+	// Case 2: Context exists and we're actively processing
+	if context != nil && context.GetCurrentStatus() == StatusRunning {
+		// Add actions to context, we are reusing RemainingActions to solve a similar problem
+		context.AppendRemainingActions(actions)
+		return false
+	}
+
+	return true
+}
+
+func StartHandlingActions(actionQueue []*Action, context *ConversationContext, responder func(response Response)error) error{
 	// Channel for goroutines to send actions back to main loop
-	actionChan := make(chan Action, 100)
+	actionChan := make(chan *Action, 100)
 
 	// Mark as actively running
 	context.SetCurrentStatus(StatusRunning)
@@ -93,7 +131,7 @@ func StartHandlingActions(actionQueue []Action, context *ConversationContext, re
 		actionQueue = actionQueue[1:]
 		// --
 
-		newActions, err := currentAction.ProcessAction(context, responder, actionChan)
+		newActions, err := currentAction.ProcessAction(context, responder, actionChan) // TODO: this might need to be done here in orchestrator to be able to keep action callable by other layers
 		actionQueue = append(actionQueue, newActions...)
 
 		// Drain channel (non-blocking) to collect any actions from goroutines
@@ -122,30 +160,6 @@ func StartHandlingActions(actionQueue []Action, context *ConversationContext, re
 
 	return nil
 }
-
-func RouteUserMessage (context *ConversationContext, intent *Intent, actions []Action) (startNewLoop bool) {
-	// Case 1: Context exists and we're waiting for user response
-	if context != nil && context.GetCurrentStatus() == StatusWaitForUser {
-		if intent.IntentType == IntentNewRequest{
-			// User is changing direction - start new workflow
-			// TODO: Clear old state, start fresh workflow
-			context.SetCurrentWorkflow(NewWorkflow(intent.WorkflowName))
-			context.SetRemainingActions(nil)
-		}
-		context.SetCurrentStatus(StatusRunning)
-		return true
-	}
-
-	// Case 2: Context exists and we're actively processing
-	if context != nil && context.GetCurrentStatus() == StatusRunning {
-		// Add actions to context, we are reusing RemainingActions to solve a similar problem
-		context.AppendRemainingActions(actions)
-		return false
-	}
-
-	return true
-}
-
 
 // CanExecute Helps identify if the app can do certain actions on behalf of the user
 func (o *Orchestrator) CanExecute(action Action, ctx *ConversationContext) bool {

@@ -1,4 +1,4 @@
-package orchestrator
+package core
 
 import (
 	"log"
@@ -20,7 +20,7 @@ type ConversationContext struct {
 	lastUserMessages []*Message
 
 	// State preservation for blocking/resuming
-	remainingActions []Action
+	remainingActions []*Action
 	requestToUser    string
 
 	// Timestamp of last modification
@@ -48,7 +48,7 @@ func (c *ConversationContext) GetLastUserMessages() []*Message {
 	return c.lastUserMessages
 }
 
-func (c *ConversationContext) GetRemainingActions() []Action {
+func (c *ConversationContext) GetRemainingActions() []*Action {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.remainingActions
@@ -89,7 +89,7 @@ func (c *ConversationContext) SetLastUserMessages(messages []*Message) {
 	c.lastUpdated = time.Now()
 }
 
-func (c *ConversationContext) SetRemainingActions(actions []Action) {
+func (c *ConversationContext) SetRemainingActions(actions []*Action) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.remainingActions = actions
@@ -112,7 +112,7 @@ func (c *ConversationContext) AppendUserMessage(msg *Message) {
 	c.lastUpdated = time.Now()
 }
 
-func (c *ConversationContext) AppendRemainingActions(actions []Action) {
+func (c *ConversationContext) AppendRemainingActions(actions []*Action) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.remainingActions = append(c.remainingActions, actions...)
@@ -120,7 +120,7 @@ func (c *ConversationContext) AppendRemainingActions(actions []Action) {
 }
 
 // PopRemainingActions atomically gets and clears remaining actions
-func (c *ConversationContext) PopRemainingActions() []Action {
+func (c *ConversationContext) PopRemainingActions() []*Action {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	actions := c.remainingActions

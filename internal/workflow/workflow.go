@@ -62,9 +62,27 @@ func RunWorkflow(context *core.ConversationContext, sourceAction *core.Action) (
 	if !ok {
 		return nil, fmt.Errorf("unknown workflow: %q", wf)
 	}
-	// Run Workflow here
-	handleDefaultSteps(workflow, context, sourceAction)
-	return workflow.WorkflowFn(context, sourceAction)
+
+	// Handle default steps first
+	defaultActions, skipWorkflow, err := handleDefaultSteps(workflow, context, sourceAction)
+	if err != nil {
+		return nil, err
+	}
+
+	// If default handling says skip workflow, return just default actions
+	if skipWorkflow {
+		return defaultActions, nil
+	}
+
+	// Otherwise, call workflow and return its actions
+	workflowActions, err := workflow.WorkflowFn(context, sourceAction)
+	if err != nil {
+		return nil, err
+	}
+	if defaultActions != nil {
+		return append(defaultActions, workflowActions...), nil
+	}
+	return workflowActions, nil
 }
 
 func init() {
@@ -82,17 +100,75 @@ func init() {
 - Init (new workflow has started. Likely do some cleanup, workflow specific init can be done at the beginning of workflow)
 - StepUserAsksQuestion (This should intersect the Workflow without interuppting it and allow for side questions)
 */
-func handleDefaultSteps(w *WorkflowDefinition, c *core.ConversationContext, a *core.Action){
-	if overwrite, ok := w.Options[OptionOverwriteHandleDefaultSteps] ; ok && overwrite != false{
-		return
+func handleDefaultSteps(w WorkflowDefinition, c *core.ConversationContext, a *core.Action) ([]*core.Action, bool, error) {
+	// Check if workflow opts out of default handling
+	if overwrite, ok := w.Options[OptionOverwriteHandleDefaultSteps]; ok && overwrite != false {
+		return nil, false, nil
 	}
+
 	step := getInput(a, core.InputStep)
-	switch step{
+	switch step {
 	case StepInit:
+		// Reset workflow data for fresh start
+		if err := resetWorkflowData(c); err != nil {
+			return nil, false, err
+		}
+
+		// Reset AI conversation for this workflow (will be newly generated at next requets)
+		c.SetAIConversation(nil)
+
+		// Let workflow continue with initialization
+		return nil, false, nil
+
 	case StepUserAnsweringQuestion:
+		// Let workflow handle the user's answer
+		return nil, false, nil
+
 	case StepUserAsksQuestion:
-		askAI()
+		// Handle side question with proper context preparation
+		actions, err := handleSideQuestion(c, w, a)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// Skip workflow execution this turn
+		return actions, true, nil
 	}
+
+	// Default: no special handling
+	return nil, false, nil
+}
+
+// resetWorkflowData clears workflow data to prepare for fresh workflow run
+func resetWorkflowData(c *core.ConversationContext) error {
+	workflow := c.GetCurrentWorkflow()
+	if workflow == nil {
+		return fmt.Errorf("no current workflow to reset")
+	}
+
+	// Clear all workflow data
+	workflow.WorkflowData = make(map[string]any)
+
+	return nil
+}
+
+// handleSideQuestion handles user's side question with prepared context (stub)
+func handleSideQuestion(c *core.ConversationContext, w WorkflowDefinition, a *core.Action) ([]*core.Action, error) {
+	// Get user's question from last message
+	messages := c.GetLastUserMessages()
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("no user messages found")
+	}
+	lastMessage := messages[len(messages)-1]
+
+	workflow := c.GetCurrentWorkflow()
+	if workflow == nil {
+		return nil, fmt.Errorf("no current workflow")
+	}
+
+	// TODO: Integrate with real AI service
+
+	return []*core.Action{}, nil
 }
 
 // To pass to ai...

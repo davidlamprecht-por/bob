@@ -68,6 +68,12 @@ func (c *ConversationContext) GetLastUpdated() time.Time {
 	return c.lastUpdated
 }
 
+func (c *ConversationContext) GetAIConversation() *AIConversation {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.aiConverstation
+}
+
 // Setters
 
 func (c *ConversationContext) SetCurrentWorkflow(wf *WorkflowContext) {
@@ -102,6 +108,13 @@ func (c *ConversationContext) SetRequestToUser(request string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requestToUser = request
+	c.lastUpdated = time.Now()
+}
+
+func (c *ConversationContext) SetAIConversation(conv *AIConversation) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.aiConverstation = conv
 	c.lastUpdated = time.Now()
 }
 

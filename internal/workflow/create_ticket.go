@@ -12,6 +12,6 @@ What does the AI need to know?
 */
 
 func CreateTicket(context *core.ConversationContext, sourceAction *core.Action) ([]*core.Action, error){
-	step := getInput(sourceAction, core.InputStep)
+	_ = getInput(sourceAction, core.InputStep) // TODO: Use step when implementing workflow
 	return nil, nil
 }

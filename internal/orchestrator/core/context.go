@@ -19,7 +19,6 @@ type ConversationContext struct {
 	currentWorkflow  *WorkflowContext
 	currentStatus    ContextStatus
 	lastUserMessages []*Message
-	aiConverstation  *AIConversation
 
 	// State preservation for blocking/resuming
 	remainingActions []*Action
@@ -68,12 +67,6 @@ func (c *ConversationContext) GetLastUpdated() time.Time {
 	return c.lastUpdated
 }
 
-func (c *ConversationContext) GetAIConversation() *AIConversation {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.aiConverstation
-}
-
 // Setters
 
 func (c *ConversationContext) SetCurrentWorkflow(wf *WorkflowContext) {
@@ -108,13 +101,6 @@ func (c *ConversationContext) SetRequestToUser(request string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requestToUser = request
-	c.lastUpdated = time.Now()
-}
-
-func (c *ConversationContext) SetAIConversation(conv *AIConversation) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.aiConverstation = conv
 	c.lastUpdated = time.Now()
 }
 
@@ -153,18 +139,6 @@ const (
 	StatusError       = "error"
 	StatusEvicted     = "evicted" // Context was evicted from cache while active
 )
-
-type WorkflowContext struct {
-	ID           int
-	WorkflowName string
-	Step         string
-
-	WorkflowData map[string]any
-}
-
-func NewWorkflow(name string) *WorkflowContext {
-	return &WorkflowContext{WorkflowName: name, Step: "init"}
-}
 
 func LoadContext(refMessage *Message) *ConversationContext {
 	uID, tID, err := refMessage.GetResolved()
@@ -228,10 +202,10 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 	var wf *WorkflowContext
 	if dbContext.Workflow != nil {
 		wf = &WorkflowContext{
-			ID:           *dbContext.Workflow.ID,
-			WorkflowName: dbContext.Workflow.WorkflowName,
-			Step:         dbContext.Workflow.Step,
-			WorkflowData: dbContext.Workflow.WorkflowData,
+			id:           *dbContext.Workflow.ID,
+			workflowName: dbContext.Workflow.WorkflowName,
+			step:         dbContext.Workflow.Step,
+			workflowData: dbContext.Workflow.WorkflowData,
 		}
 	}
 
@@ -264,10 +238,10 @@ func (c *ConversationContext) UpdateDB() error {
 	var dbWorkflow *database.WorkflowContext
 	if currentWorkflow != nil {
 		dbWorkflow = &database.WorkflowContext{
-			ID:           &currentWorkflow.ID,
-			WorkflowName: currentWorkflow.WorkflowName,
-			Step:         currentWorkflow.Step,
-			WorkflowData: currentWorkflow.WorkflowData,
+			ID:           &currentWorkflow.id,
+			WorkflowName: currentWorkflow.workflowName,
+			Step:         currentWorkflow.step,
+			WorkflowData: currentWorkflow.workflowData,
 		}
 	}
 
@@ -288,7 +262,7 @@ func (c *ConversationContext) UpdateDB() error {
 	// Update workflow DB ID if it changed
 	if updatedWorkflowID != nil && c.currentWorkflow != nil {
 		c.mu.Lock()
-		c.currentWorkflow.ID = *updatedWorkflowID
+		c.currentWorkflow.id = *updatedWorkflowID
 		c.mu.Unlock()
 	}
 

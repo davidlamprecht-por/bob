@@ -27,7 +27,7 @@ func main() {
 	}
 	defer database.Close()
 
-	fmt.Println("✓ Connected to database successfully\n")
+	fmt.Println("✓ Connected to database successfully")
 
 	// Get migrations directory path
 	migrationsDir := getMigrationsDir()
@@ -82,7 +82,7 @@ func getMigrationsDir() string {
 	}
 
 	// Default fallback
-	fmt.Println("Using default migrations directory: definitions/migrations\n")
+	fmt.Println("Using default migrations directory: definitions/migrations")
 	return "definitions/migrations"
 }
 

@@ -134,7 +134,7 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 		actionQueue = actionQueue[1:]
 		// --
 
-		newActions, err := currentAction.ProcessAction(context, responder, actionChan) // TODO: this might need to be done here in orchestrator to be able to keep action callable by other layers
+		newActions, err := ProcessAction(currentAction, context, responder, actionChan) // TODO: this might need to be done here in orchestrator to be able to keep action callable by other layers
 		actionQueue = append(actionQueue, newActions...)
 
 		// Drain channel (non-blocking) to collect any actions from goroutines

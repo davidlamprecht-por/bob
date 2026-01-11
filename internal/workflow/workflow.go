@@ -57,7 +57,7 @@ func RunWorkflow(context *core.ConversationContext, sourceAction *core.Action) (
 	if cw == nil {
 		return nil, fmt.Errorf("no current workflow set")
 	}
-	wf := WorkflowName(cw.WorkflowName)
+	wf := WorkflowName(cw.GetWorkflowName())
 	workflow, ok := workflows[wf]
 	if !ok {
 		return nil, fmt.Errorf("unknown workflow: %q", wf)
@@ -115,7 +115,7 @@ func handleDefaultSteps(w WorkflowDefinition, c *core.ConversationContext, a *co
 		}
 
 		// Reset AI conversation for this workflow (will be newly generated at next requets)
-		c.SetAIConversation(nil)
+		c.GetCurrentWorkflow().SetAIConversation(nil, nil)
 
 		// Let workflow continue with initialization
 		return nil, false, nil
@@ -147,7 +147,7 @@ func resetWorkflowData(c *core.ConversationContext) error {
 	}
 
 	// Clear all workflow data
-	workflow.WorkflowData = make(map[string]any)
+	workflow.ResetWorkflowData()
 
 	return nil
 }
@@ -159,7 +159,7 @@ func handleSideQuestion(c *core.ConversationContext, w WorkflowDefinition, a *co
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no user messages found")
 	}
-	lastMessage := messages[len(messages)-1]
+	_ = messages[len(messages)-1] // lastMessage - TODO: Use this when integrating AI service
 
 	workflow := c.GetCurrentWorkflow()
 	if workflow == nil {

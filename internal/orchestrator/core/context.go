@@ -72,6 +72,9 @@ func (c *ConversationContext) GetLastUpdated() time.Time {
 func (c *ConversationContext) SetCurrentWorkflow(wf *WorkflowContext) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if wf != nil {
+		wf.SetContext(c) // Link workflow to parent context
+	}
 	c.currentWorkflow = wf
 	c.lastUpdated = time.Now()
 }
@@ -151,19 +154,23 @@ func LoadContext(refMessage *Message) *ConversationContext {
 		return nil
 	}
 	userID, threadID := *uID, *tID
+	log.Printf("🔍 LoadContext: userID=%d, threadID=%d", userID, threadID)
 
 	// 1. Check cache first (hot)
 	context := GetFromCache(userID, threadID)
 	if context != nil {
+		log.Printf("🔍 LoadContext: Found in cache")
 		context.AppendUserMessage(refMessage)
 		return context
 	}
 
 	// 2. Load from DB (cold)
+	log.Printf("🔍 LoadContext: Not in cache, loading from DB")
 	context = loadContextFromDB(userID, threadID)
 
 	// 3. If not found, create new
 	if context == nil {
+		log.Printf("🔍 LoadContext: Not found in DB, creating new context")
 		context = &ConversationContext{
 			userID:          userID,
 			threadID:        threadID,
@@ -172,6 +179,8 @@ func LoadContext(refMessage *Message) *ConversationContext {
 			lastUpdated:     time.Now(),
 			createdAt:       time.Now(),
 		}
+	} else {
+		log.Printf("🔍 LoadContext: Loaded from DB, workflow=%v", context.currentWorkflow)
 	}
 
 	context.AppendUserMessage(refMessage)
@@ -195,18 +204,14 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 	}
 
 	if dbContext == nil {
+		log.Printf("🔍 loadContextFromDB: repo.LoadContext returned nil")
 		return nil
 	}
 
-	// Convert database.WorkflowContext to orchestrator.WorkflowContext
-	var wf *WorkflowContext
+	log.Printf("🔍 loadContextFromDB: dbContext.Workflow=%v", dbContext.Workflow)
 	if dbContext.Workflow != nil {
-		wf = &WorkflowContext{
-			id:           *dbContext.Workflow.ID,
-			workflowName: dbContext.Workflow.WorkflowName,
-			step:         dbContext.Workflow.Step,
-			workflowData: dbContext.Workflow.WorkflowData,
-		}
+		log.Printf("🔍 loadContextFromDB: workflow.ID=%v, name=%s, ai_conversation=%v",
+			dbContext.Workflow.ID, dbContext.Workflow.WorkflowName, dbContext.Workflow.AIConversation)
 	}
 
 	// Reconstruct ConversationContext with resolved IDs
@@ -214,13 +219,27 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 		userID:   userID,
 		threadID: threadID,
 
-		currentWorkflow:  wf,
+		currentWorkflow:  nil, // Set after linking
 		currentStatus:    ContextStatus(dbContext.ContextStatus),
 		lastUserMessages: []*Message{}, // Not persisted, starts empty
 		remainingActions: nil,          // Action queue not persisted
 		requestToUser:    dbContext.RequestToUser,
 		lastUpdated:      time.Now(), // Set to now on load
 		createdAt:        time.Now(), // Not persisted, approximate
+	}
+
+	// Convert database.WorkflowContext to orchestrator.WorkflowContext
+	if dbContext.Workflow != nil {
+		wf := &WorkflowContext{
+			id:              *dbContext.Workflow.ID,
+			workflowName:    dbContext.Workflow.WorkflowName,
+			step:            dbContext.Workflow.Step,
+			workflowData:    dbContext.Workflow.WorkflowData,
+			aiConverstation: dbContext.Workflow.AIConversation,
+		}
+		// Link workflow to its parent context
+		wf.SetContext(ctx)
+		ctx.currentWorkflow = wf
 	}
 
 	return ctx
@@ -237,11 +256,23 @@ func (c *ConversationContext) UpdateDB() error {
 	// Convert orchestrator.WorkflowContext to database.WorkflowContext
 	var dbWorkflow *database.WorkflowContext
 	if currentWorkflow != nil {
+		// Only set ID if it's been saved before (non-zero)
+		var workflowID *int
+		if currentWorkflow.id > 0 {
+			workflowID = &currentWorkflow.id
+			log.Printf("🔍 UpdateDB: workflow.id=%d (will UPDATE)", currentWorkflow.id)
+		} else {
+			log.Printf("🔍 UpdateDB: workflow.id=0 (will INSERT)")
+		}
+
+		log.Printf("🔍 UpdateDB: aiConverstation=%v", currentWorkflow.aiConverstation)
+
 		dbWorkflow = &database.WorkflowContext{
-			ID:           &currentWorkflow.id,
-			WorkflowName: currentWorkflow.workflowName,
-			Step:         currentWorkflow.step,
-			WorkflowData: currentWorkflow.workflowData,
+			ID:             workflowID,
+			WorkflowName:   currentWorkflow.workflowName,
+			Step:           currentWorkflow.step,
+			WorkflowData:   currentWorkflow.workflowData,
+			AIConversation: currentWorkflow.aiConverstation,
 		}
 	}
 
@@ -261,8 +292,10 @@ func (c *ConversationContext) UpdateDB() error {
 
 	// Update workflow DB ID if it changed
 	if updatedWorkflowID != nil && c.currentWorkflow != nil {
+		log.Printf("🔍 UpdateDB: SaveContext returned workflow ID=%d", *updatedWorkflowID)
 		c.mu.Lock()
 		c.currentWorkflow.id = *updatedWorkflowID
+		log.Printf("🔍 UpdateDB: Set workflow.id to %d", c.currentWorkflow.id)
 		c.mu.Unlock()
 	}
 

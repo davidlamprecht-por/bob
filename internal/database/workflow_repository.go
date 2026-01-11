@@ -16,10 +16,11 @@ func NewWorkflowRepository(db *sql.DB) *WorkflowRepository {
 
 // WorkflowContext mirrors orchestrator.WorkflowContext to avoid import cycles
 type WorkflowContext struct {
-	ID           *int
-	WorkflowName string
-	Step         string
-	WorkflowData map[string]any
+	ID             *int
+	WorkflowName   string
+	Step           string
+	WorkflowData   map[string]any
+	AIConversation *string // Main AI conversation ID
 }
 
 func (r *WorkflowRepository) SaveWorkflow(tx *sql.Tx, workflow *WorkflowContext) (int, error) {
@@ -49,8 +50,8 @@ func (r *WorkflowRepository) saveWorkflowInTx(tx *sql.Tx, workflow *WorkflowCont
 	if workflow.ID == nil {
 		// INSERT new workflow_context
 		result, err := tx.Exec(
-			"INSERT INTO workflow_context (workflow_name, workflow_step) VALUES (?, ?)",
-			workflow.WorkflowName, workflow.Step,
+			"INSERT INTO workflow_context (workflow_name, workflow_step, ai_conversation) VALUES (?, ?, ?)",
+			workflow.WorkflowName, workflow.Step, workflow.AIConversation,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("failed to insert workflow context: %w", err)
@@ -60,8 +61,8 @@ func (r *WorkflowRepository) saveWorkflowInTx(tx *sql.Tx, workflow *WorkflowCont
 	} else {
 		// UPDATE existing workflow_context
 		_, err := tx.Exec(
-			"UPDATE workflow_context SET workflow_name=?, workflow_step=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-			workflow.WorkflowName, workflow.Step, *workflow.ID,
+			"UPDATE workflow_context SET workflow_name=?, workflow_step=?, ai_conversation=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+			workflow.WorkflowName, workflow.Step, workflow.AIConversation, *workflow.ID,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("failed to update workflow context: %w", err)
@@ -96,9 +97,9 @@ func (r *WorkflowRepository) LoadWorkflow(workflowID int) (workflow *WorkflowCon
 
 	// Load workflow_context
 	err = r.db.QueryRow(
-		"SELECT workflow_name, workflow_step FROM workflow_context WHERE id=?",
+		"SELECT workflow_name, workflow_step, ai_conversation FROM workflow_context WHERE id=?",
 		workflowID,
-	).Scan(&workflow.WorkflowName, &workflow.Step)
+	).Scan(&workflow.WorkflowName, &workflow.Step, &workflow.AIConversation)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load workflow context: %w", err)

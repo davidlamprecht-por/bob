@@ -13,34 +13,47 @@ type WorkflowContext struct {
 	workflowData map[string]any
 	aiConverstation *string // Main aiConverstation
 
-	context ConversationContext
+	context *ConversationContext // Pointer to parent context for mutex locking
 }
 
 func NewWorkflow(name string) *WorkflowContext {
 	return &WorkflowContext{workflowName: name, step: "init"}
 }
 
+// SetContext sets the parent ConversationContext (needed for mutex locking)
+func (wf *WorkflowContext) SetContext(ctx *ConversationContext) {
+	wf.context = ctx
+}
+
 func (wf *WorkflowContext) GetID() int{
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
+	if wf.context != nil {
+		wf.context.mu.RLock()
+		defer wf.context.mu.RUnlock()
+	}
 	return wf.id
 }
 
 func (wf *WorkflowContext) GetWorkflowName() string {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
+	if wf.context != nil {
+		wf.context.mu.RLock()
+		defer wf.context.mu.RUnlock()
+	}
 	return wf.workflowName
 }
 
 func (wf *WorkflowContext) GetStep() string{
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
+	if wf.context != nil {
+		wf.context.mu.RLock()
+		defer wf.context.mu.RUnlock()
+	}
 	return wf.step
 }
 
 func (wf *WorkflowContext) GetWorkflowData(key string) any {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
+	if wf.context != nil {
+		wf.context.mu.RLock()
+		defer wf.context.mu.RUnlock()
+	}
 	val, ok := wf.workflowData[key]
 	if !ok {
 		return nil
@@ -49,56 +62,73 @@ func (wf *WorkflowContext) GetWorkflowData(key string) any {
 }
 
 func (wf *WorkflowContext) GetAIConversation(key *string) *string {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
+	if wf.context != nil {
+		wf.context.mu.RLock()
+		defer wf.context.mu.RUnlock()
+	}
 
 	// Main Conversation
 	if key == nil {
+		if wf.aiConverstation == nil {
+			fmt.Println("🔍 DEBUG: wf.aiConverstation is nil")
+		} else {
+			fmt.Printf("🔍 DEBUG: wf.aiConverstation = %s\n", *wf.aiConverstation)
+		}
 		return wf.aiConverstation
 	}
-	
+
 	// Sub Conversations
 	convKey := fmt.Sprintf("ai_conv_%s", *key)
 	conv := wf.GetWorkflowData(convKey)
-	
-	c, ok := conv.(string)
-	if !ok {
-		return nil
+
+	// Try *string first (what we actually store)
+	if strPtr, ok := conv.(*string); ok {
+		return strPtr
 	}
-	return &c
+
+	// Fallback to string
+	if str, ok := conv.(string); ok {
+		return &str
+	}
+
+	return nil
 }
 
 // setters --------------------------------------------------------------------
 
 func (wf *WorkflowContext) SetID(id int) {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
-	wf.context.lastUpdated = time.Now()
-
+	if wf.context != nil {
+		wf.context.mu.Lock()
+		defer wf.context.mu.Unlock()
+		wf.context.lastUpdated = time.Now()
+	}
 	wf.id = id
 }
 
 func (wf *WorkflowContext) SetWorkflowName(name string) {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
-	wf.context.lastUpdated = time.Now()
-
+	if wf.context != nil {
+		wf.context.mu.Lock()
+		defer wf.context.mu.Unlock()
+		wf.context.lastUpdated = time.Now()
+	}
 	wf.workflowName = name
 }
 
 func (wf *WorkflowContext) SetStep(step string) {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
-	wf.context.lastUpdated = time.Now()
-
+	if wf.context != nil {
+		wf.context.mu.Lock()
+		defer wf.context.mu.Unlock()
+		wf.context.lastUpdated = time.Now()
+	}
 	wf.step = step
 }
 
 func (wf *WorkflowContext) SetWorkflowData(key string, value any) {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
-	wf.context.lastUpdated = time.Now()
-
+	if wf.context != nil {
+		wf.context.mu.Lock()
+		defer wf.context.mu.Unlock()
+		wf.context.lastUpdated = time.Now()
+	}
 	if wf.workflowData == nil {
 		wf.workflowData = make(map[string]any)
 	}
@@ -106,18 +136,20 @@ func (wf *WorkflowContext) SetWorkflowData(key string, value any) {
 }
 
 func (wf *WorkflowContext) ResetWorkflowData(){
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
-	wf.context.lastUpdated = time.Now()
-
+	if wf.context != nil {
+		wf.context.mu.Lock()
+		defer wf.context.mu.Unlock()
+		wf.context.lastUpdated = time.Now()
+	}
 	wf.workflowData = make(map[string]any)
 }
 
 func (wf *WorkflowContext) SetAIConversation(key *string, conv *string) {
-	wf.context.mu.RLock()
-	defer wf.context.mu.RUnlock()
-	wf.context.lastUpdated = time.Now()
-
+	if wf.context != nil {
+		wf.context.mu.Lock()
+		defer wf.context.mu.Unlock()
+		wf.context.lastUpdated = time.Now()
+	}
 	if key == nil {
 		wf.aiConverstation = conv
 		return

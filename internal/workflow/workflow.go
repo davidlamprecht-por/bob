@@ -12,6 +12,7 @@ import (
 const (
 	WorkflowCreateTicket WorkflowName = "createTicket"
 	WorkflowQueryTicket  WorkflowName = "queryTicket"
+	WorkflowTestAI       WorkflowName = "testAI"
 )
 
 var workflows = map[WorkflowName]WorkflowDefinition{
@@ -22,6 +23,10 @@ var workflows = map[WorkflowName]WorkflowDefinition{
 	WorkflowQueryTicket: {
 		Description: "This workflow aims to fetch an ado ticket for the user by given ADO ticket id or or generic description",
 		WorkflowFn:  QueryTicket,
+	},
+	WorkflowTestAI: {
+		Description: "Test workflow that sends user messages to AI and returns the response",
+		WorkflowFn:  TestAI,
 	},
 }
 

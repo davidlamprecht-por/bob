@@ -46,7 +46,7 @@ func NewAction(actionType ActionType) *Action{
 		SourceWorkflow: "",
 		AsyncGroupID: "",
 		AsyncGroupSize: 1,
-		Input: nil,
+		Input: make(map[InputType]any),
 		AsyncActions: make([]*Action, 0),
 	}
 }

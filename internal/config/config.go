@@ -2,10 +2,10 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 
+	"bob/internal/logger"
 	"github.com/joho/godotenv"
 )
 
@@ -48,13 +48,13 @@ var Current Config
 func Init() {
 	// Load .env file if it exists
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables only")
+		logger.Info("No .env file found, using environment variables only")
 	}
 
 	var err error
 	Current, err = Load()
 	if err != nil {
-		log.Fatalf("Configuration Error: %v\n\nHint: Copy .env.dist to .env and fill in your values.", err)
+		logger.Fatalf("Configuration Error: %v\n\nHint: Copy .env.dist to .env and fill in your values.", err)
 	}
 }
 

@@ -2,11 +2,11 @@
 package core
 
 import (
-	"log"
 	"sync"
 	"time"
 
 	"bob/internal/database"
+	"bob/internal/logger"
 )
 
 type ConversationContext struct {
@@ -143,11 +143,11 @@ const (
 func LoadContext(refMessage *Message) *ConversationContext {
 	uID, tID, err := refMessage.GetResolved()
 	if err != nil {
-		log.Printf("ERROR: Failed to resolve IDs: %v", err)
+		logger.Errorf("Failed to resolve IDs: %v", err)
 		return nil
 	}
 	if uID == nil || tID == nil {
-		log.Printf("something went wrong when loading user and thread")
+		logger.Error("something went wrong when loading user and thread")
 		return nil
 	}
 	userID, threadID := *uID, *tID
@@ -190,7 +190,7 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 	dbContext, err := repo.LoadContext(userID, threadID)
 
 	if err != nil {
-		log.Printf("ERROR: Failed to load context from DB: %v", err)
+		logger.Errorf("Failed to load context from DB: %v", err)
 		return nil
 	}
 

@@ -10,11 +10,12 @@ import (
 type Message struct {
 	UserID    *PlatformRef
 	ThreadID  *PlatformRef
+	Channel 	string  // Needed for slack
 	Message   string
 	Timestamp time.Time
 }
 
-func NewMessage(userID string, threadID string, platform PlatformType, message string, timestamp time.Time) *Message{
+func NewMessage(userID string, channel string, threadID string, platform PlatformType, message string, timestamp time.Time) *Message{
 	return &Message{
 		UserID: &PlatformRef{
 			externalID: userID,
@@ -24,6 +25,7 @@ func NewMessage(userID string, threadID string, platform PlatformType, message s
 			externalID: threadID,
 			platform: platform,
 		},
+		Channel: channel,
 		Message: message,
 		Timestamp: timestamp,
 	}
@@ -34,6 +36,10 @@ type PlatformRef struct {
 	platform   PlatformType
 
 	internalID *int // Could be resolved later
+}
+
+func (pr *PlatformRef) GetExternal() string{
+	return pr.externalID
 }
 
 type PlatformType string

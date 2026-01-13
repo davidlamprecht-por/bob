@@ -2,12 +2,12 @@ package core
 
 import (
 	"fmt"
-	"log"
 	"sort"
 	"sync"
 	"time"
 
 	"bob/internal/config"
+	"bob/internal/logger"
 )
 
 var contextCache = make(map[string]*ConversationContext)
@@ -108,7 +108,7 @@ func evictToLimit() {
 			return
 		}
 		delete(contextCache, c.key)
-		log.Printf("Cache: Evicted idle context: %s", c.key)
+		logger.Debugf("Cache: Evicted idle context: %s", c.key)
 	}
 
 	// Then Error
@@ -117,7 +117,7 @@ func evictToLimit() {
 			return
 		}
 		delete(contextCache, c.key)
-		log.Printf("Cache: Evicted error context: %s", c.key)
+		logger.Debugf("Cache: Evicted error context: %s", c.key)
 	}
 
 	// Then WaitForUser (mark as evicted, save to DB)
@@ -129,21 +129,21 @@ func evictToLimit() {
 
 		// Save to DB before eviction
 		if err := c.entry.UpdateDB(); err != nil {
-			log.Printf("ERROR: Failed to save evicted WaitForUser context to DB: %v (key: %s)", err, c.key)
+			logger.Errorf("Failed to save evicted WaitForUser context to DB: %v (key: %s)", err, c.key)
 		}
 
 		delete(contextCache, c.key)
-		log.Printf("WARNING: High traffic - evicted StatusWaitForUser context: %s", c.key)
+		logger.Warnf("High traffic - evicted StatusWaitForUser context: %s", c.key)
 	}
 
 	// Check if over grace buffer - emergency eviction
 	if len(contextCache) >= config.Current.GraceBufferSize {
-		log.Printf("CRITICAL: Cache hit grace buffer (%d contexts), emergency eviction starting", len(contextCache))
+		logger.Errorf("CRITICAL: Cache hit grace buffer (%d contexts), emergency eviction starting", len(contextCache))
 
 		// Evict until under grace buffer
 		for _, c := range otherCandidates {
 			if len(contextCache) < config.Current.GraceBufferSize {
-				log.Printf("Emergency eviction complete - cache size: %d", len(contextCache))
+				logger.Warnf("Emergency eviction complete - cache size: %d", len(contextCache))
 				return
 			}
 
@@ -154,10 +154,10 @@ func evictToLimit() {
 
 				// Save to DB before eviction
 				if err := c.entry.UpdateDB(); err != nil {
-					log.Printf("ERROR: Failed to save emergency evicted context to DB: %v (key: %s)", err, c.key)
+					logger.Errorf("Failed to save emergency evicted context to DB: %v (key: %s)", err, c.key)
 				}
 
-				log.Printf("ERROR: Emergency evicted %s context: %s", status, c.key)
+				logger.Errorf("Emergency evicted %s context: %s", status, c.key)
 			}
 
 			delete(contextCache, c.key)

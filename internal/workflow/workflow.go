@@ -18,10 +18,12 @@ var workflows = map[WorkflowName]WorkflowDefinition{
 	WorkflowCreateTicket: {
 		Description: "This workflow guides the user to create a new ADO work ticket",
 		WorkflowFn:  CreateTicket,
+		AvailableSteps: []string{},
 	},
 	WorkflowQueryTicket: {
 		Description: "This workflow aims to fetch an ado ticket for the user by given ADO ticket id or or generic description",
 		WorkflowFn:  QueryTicket,
+		AvailableSteps: []string{},
 	},
 }
 
@@ -30,9 +32,12 @@ var workflows = map[WorkflowName]WorkflowDefinition{
 type WorkflowName string
 
 const (
+	// Default Steps
 	StepInit = "init"
 	StepUserAsksQuestion = "asking_question"
 	StepUserAnsweringQuestion = "answering_question"
+
+	// Workfow Specific Steps...
 )
 
 type Option string
@@ -44,10 +49,10 @@ const (
 type WorkflowDefinition struct {
 	Name        WorkflowName
 	Description string
+	AvailableSteps []string
 
 	WorkflowFn func(context *core.ConversationContext, sourceAction *core.Action) ([]*core.Action, error)
 	Options map[Option]any
-	// Later some other restrictions etc that ai should know about this workflow
 }
 
 
@@ -176,6 +181,7 @@ func handleSideQuestion(c *core.ConversationContext, w WorkflowDefinition, a *co
 type WorkflowInfo struct {
 	Name        WorkflowName `json:"name"`
 	Description string       `json:"description"`
+	AvailableSteps []string
 }
 
 func AvailableWorkflows() []WorkflowInfo {
@@ -184,7 +190,45 @@ func AvailableWorkflows() []WorkflowInfo {
 		out = append(out, WorkflowInfo{
 			Name: name,
 			Description: def.Description,
+			AvailableSteps: def.AvailableSteps,
 		})
 	}
 	return out
+}
+
+// GetAvailableWorkflowContext is a function that can be passed to ai to help identify what it can choose to do!
+func GetAvailableWorkflowContext() string {
+	context := "## Available Workflows\n\n"
+
+	// Add default steps information
+	context += "### Default Steps (Available in ALL Workflows)\n"
+	context += "These steps are automatically available in every workflow:\n"
+	context += fmt.Sprintf("- **%s**: Initialize a new workflow. Cleans up previous workflow state and starts fresh.\n", StepInit)
+	context += fmt.Sprintf("- **%s**: User is asking a clarifying or side question related to the current workflow. Handles the question without interrupting workflow progress.\n", StepUserAsksQuestion)
+	context += fmt.Sprintf("- **%s**: User is responding to a question posed by the workflow. Used when workflow needs information from the user.\n\n", StepUserAnsweringQuestion)
+
+	// Add workflow-specific information
+	context += "### Workflow Options\n"
+	workflows := AvailableWorkflows()
+
+	if len(workflows) == 0 {
+		context += "No workflows currently available.\n"
+		return context
+	}
+
+	for i, wf := range workflows {
+		context += fmt.Sprintf("\n**%d. Workflow: %s**\n", i+1, wf.Name)
+		context += fmt.Sprintf("   Description: %s\n", wf.Description)
+
+		if len(wf.AvailableSteps) > 0 {
+			context += "   Additional Available Steps for this specific Workflow:\n"
+			for _, step := range wf.AvailableSteps {
+				context += fmt.Sprintf("   - %s\n", step)
+			}
+		} else {
+			context += "   Additional Steps: None (uses only default steps)\n"
+		}
+	}
+
+	return context
 }

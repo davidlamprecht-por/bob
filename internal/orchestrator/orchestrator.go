@@ -6,6 +6,7 @@ package orchestrator
 import (
 	"bob/internal/orchestrator/core"
 	"bob/internal/workflow"
+	"fmt"
 )
 
 type Orchestrator struct {
@@ -43,18 +44,20 @@ func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(r
 	return err
 }
 
-// AnalyzeIntent determines if message is answering a question or starting new request (stub)
-func AnalyzeIntent(message *core.Message, context *core.ConversationContext) core.Intent {
-	// TODO
-	// Give the ai all the things it needs to know to identify user intend
-	// ContextStatus (is it already running and the user wants to interject, is it a new request, an answer?),
-	// last message to user, user message and whatever else
-	// Also give AI Workflow specific actions that the user could be doing
-	// Decide if the ai should give intent from a preselect
-
-	// Parse it out as intent object
-
-	return core.Intent{}
+// formatIntentDetails formats an Intent object into a readable string for testing
+func formatIntentDetails(intent core.Intent) string {
+	msg := "=== Intent Analysis ===\n"
+	msg += "Intent Type: " + string(intent.IntentType) + "\n"
+	msg += "Workflow Name: " + intent.WorkflowName + "\n"
+	msg += "Confidence: " + fmt.Sprintf("%.2f", intent.Confidence) + "\n"
+	msg += "Reasoning: " + intent.Reasoning + "\n"
+	if intent.MessageToUser != nil && *intent.MessageToUser != "" {
+		msg += "Message to User: " + *intent.MessageToUser + "\n"
+	} else {
+		msg += "Message to User: (none)\n"
+	}
+	msg += "====================="
+	return msg
 }
 
 // handleEvictedContext handles context that was evicted from cache (stub for smart recovery)
@@ -70,6 +73,7 @@ func handleEvictedContext(context *core.ConversationContext, _ *core.Message) st
 func ProcessUserIntent(intent core.Intent) []*core.Action{
 	actions := make([]*core.Action, 0)
 	a := core.NewAction(core.ActionWorkflow)
+	a.Input = make(map[core.InputType]any)
 	switch intent.IntentType{
 	case core.IntentNewWorkflow:
 		a.Input[core.InputStep] = workflow.StepInit
@@ -79,7 +83,7 @@ func ProcessUserIntent(intent core.Intent) []*core.Action{
 		a.Input[core.InputStep] = workflow.StepUserAsksQuestion
 	}
 	actions = append(actions, a)
-	if *intent.MessageToUser != "" && intent.MessageToUser != nil{
+	if intent.MessageToUser != nil && *intent.MessageToUser != "" {
 		a2 := core.NewAction(core.ActionUserMessage)
 		a2.Input[core.InputMessage] = intent.MessageToUser
 		actions = append(actions, a2)
@@ -91,8 +95,6 @@ func RouteUserMessage (context *core.ConversationContext, intent *core.Intent, a
 	// Case 1: Context exists and we're waiting for user response
 	if context != nil && context.GetCurrentStatus() == core.StatusWaitForUser {
 		if intent.IntentType == core.IntentNewWorkflow{
-			// User is changing direction - start new workflow
-			// TODO: Clear old state, start fresh workflow
 			context.SetCurrentWorkflow(core.NewWorkflow(intent.WorkflowName))
 			context.SetRemainingActions(nil)
 		}
@@ -102,9 +104,13 @@ func RouteUserMessage (context *core.ConversationContext, intent *core.Intent, a
 
 	// Case 2: Context exists and we're actively processing
 	if context != nil && context.GetCurrentStatus() == core.StatusRunning {
-		// Add actions to context, we are reusing RemainingActions to solve a similar problem
 		context.AppendRemainingActions(actions)
 		return false
+	}
+
+	// Case 3: Starting fresh (idle or no workflow)
+	if intent.IntentType == core.IntentNewWorkflow {
+		context.SetCurrentWorkflow(core.NewWorkflow(intent.WorkflowName))
 	}
 
 	return true

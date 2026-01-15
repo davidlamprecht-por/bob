@@ -50,9 +50,9 @@ func buildSchema(builder *ai.SchemaBuilder) (map[string]any, error) {
 		propSchema := buildPropertySchema(field)
 		properties[field.Name] = propSchema
 
-		if field.Required {
-			required = append(required, field.Name)
-		}
+		// OpenAI Structured Outputs requires ALL fields to be in the required array
+		// For fields not marked as Required(), we add instructions in the description
+		required = append(required, field.Name)
 	}
 
 	schema := map[string]any{
@@ -129,8 +129,16 @@ func buildPropertySchema(field ai.FieldDef) map[string]any {
 		}
 	}
 
-	if field.Description != "" {
-		prop["description"] = field.Description
+	// Handle description - for non-required fields, add instruction about leaving empty
+	description := field.Description
+	if !field.Required && description != "" {
+		description += " (Leave empty (\"\") if not applicable)"
+	} else if !field.Required {
+		description = "Leave empty (\"\") if not applicable"
+	}
+
+	if description != "" {
+		prop["description"] = description
 	}
 
 	if field.Default != nil {

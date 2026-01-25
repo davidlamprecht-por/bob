@@ -14,23 +14,29 @@ const (
 	WorkflowCreateTicket WorkflowName = "createTicket"
 	WorkflowQueryTicket  WorkflowName = "queryTicket"
 	WorkflowTestAI       WorkflowName = "testAI"
+	WorkflowTestTools    WorkflowName = "testTools"
 )
 
 var workflows = map[WorkflowName]WorkflowDefinition{
 	WorkflowCreateTicket: {
 		Description: "Create, make, open, or submit a new Azure DevOps (ADO) work item/ticket. Use when user wants to create new tickets. Keywords: create, make, new, open, submit, add ticket/work item/task/bug/story.",
 		WorkflowFn:  CreateTicket,
-		AvailableSteps: []string{},
+		AvailableSteps: []string{"gather_info", "confirm", "create_in_ado"},
 	},
 	WorkflowQueryTicket: {
 		Description: "Query, search, find, lookup, retrieve, view, or get an Azure DevOps (ADO) work item/ticket by ID or description. Use when user wants to fetch/check/see existing tickets. Keywords: query, search, find, get, lookup, retrieve, show, view, check, fetch, pull ticket/work item.",
 		WorkflowFn:  QueryTicket,
-		AvailableSteps: []string{},
+		AvailableSteps: []string{"parse_query", "query_ado"},
 	},
 	WorkflowTestAI: {
 		Description: "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
 		WorkflowFn:  TestAI,
 		AvailableSteps: []string{},
+	},
+	WorkflowTestTools: {
+		Description: "Test the tool system by exercising the echo and calculator tools. Use for testing tool execution flow. Keywords: test tools, tool test, echo test, calculator test.",
+		WorkflowFn:  TestTools,
+		AvailableSteps: []string{"after_echo", "after_calculator"},
 	},
 }
 

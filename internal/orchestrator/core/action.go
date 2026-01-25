@@ -38,6 +38,9 @@ const (
 	InputAsyncGroupID    = "async_group_id"
 	InputAIResponse      = "ai_response"      // For storing AI response data
 	InputError           = "error"            // For error handling in results
+	InputToolName        = "tool_name"        // ToolName to execute
+	InputToolParams      = "tool_params"      // *ai.SchemaData with parameters
+	InputToolResult      = "tool_result"      // *tools.ToolResult from execution
 )
 
 func NewAction(actionType ActionType) *Action{

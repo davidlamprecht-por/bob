@@ -3,6 +3,7 @@ package workflow
 import (
 	"bob/internal/ai"
 	"bob/internal/orchestrator/core"
+	"bob/internal/tools"
 )
 
 func getInput(a *core.Action, i core.InputType) any{
@@ -42,6 +43,30 @@ func askAI(userMsg string, systemPrompt string, personality string, schema *ai.S
 	action.Input[core.InputPersonality] = personality
 	action.Input[core.InputSchema] = schema
 	action.Input[core.InputConversationKey] = conversationKey
+
+	return []*core.Action{action}
+}
+
+// callTool creates an ActionTool action for executing a tool
+// Parameters:
+//   - toolName: The name of the tool to execute
+//   - params: Map of parameters to pass to the tool
+//
+// Returns: A slice containing a single ActionTool action
+func callTool(toolName tools.ToolName, params map[string]any) []*core.Action {
+	action := core.NewAction(core.ActionTool)
+
+	// Initialize Input map if needed
+	if action.Input == nil {
+		action.Input = make(map[core.InputType]any)
+	}
+
+	// Wrap params in SchemaData
+	schemaData := ai.NewSchemaData(params)
+
+	// Set input data
+	action.Input[core.InputToolName] = toolName
+	action.Input[core.InputToolParams] = schemaData
 
 	return []*core.Action{action}
 }

@@ -6,6 +6,14 @@ type SchemaData struct {
 	data map[string]any
 }
 
+// NewSchemaData creates a new SchemaData instance with the provided data
+func NewSchemaData(data map[string]any) *SchemaData {
+	if data == nil {
+		data = make(map[string]any)
+	}
+	return &SchemaData{data: data}
+}
+
 func (d *SchemaData) GetString(name string) (string, error) {
 	val, exists := d.data[name]
 	if !exists {

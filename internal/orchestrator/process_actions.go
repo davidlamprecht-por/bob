@@ -4,6 +4,7 @@ import (
 	"bob/internal/ai"
 	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
+	"bob/internal/tools"
 	"bob/internal/workflow"
 	"context"
 	"errors"
@@ -127,7 +128,67 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 }
 
 func ActionTool(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action) ([]*Action, error){
-	return nil, nil
+	logger.Debug("🔧 ActionTool: Extracting tool information")
+
+	// Extract tool name
+	toolNameRaw, ok := a.Input[core.InputToolName]
+	if !ok {
+		logger.Error("❌ ActionTool: No tool name provided")
+		return nil, fmt.Errorf("no tool name provided in action input")
+	}
+	toolName, ok := toolNameRaw.(tools.ToolName)
+	if !ok {
+		logger.Errorf("❌ ActionTool: Invalid tool name type: %T", toolNameRaw)
+		return nil, fmt.Errorf("invalid tool name type: expected tools.ToolName, got %T", toolNameRaw)
+	}
+
+	logger.Debugf("🔧 ActionTool: Tool name=%s", toolName)
+
+	// Extract parameters
+	paramsRaw, ok := a.Input[core.InputToolParams]
+	if !ok {
+		logger.Error("❌ ActionTool: No tool parameters provided")
+		return nil, fmt.Errorf("no tool parameters provided in action input")
+	}
+	params, ok := paramsRaw.(*ai.SchemaData)
+	if !ok {
+		logger.Errorf("❌ ActionTool: Invalid parameters type: %T", paramsRaw)
+		return nil, fmt.Errorf("invalid parameters type: expected *ai.SchemaData, got %T", paramsRaw)
+	}
+
+	logger.Debug("🔧 ActionTool: Executing tool")
+
+	// Execute the tool
+	result, err := tools.ExecuteTool(toolName, ctx, params)
+	if err != nil {
+		logger.Errorf("❌ ActionTool: Tool execution failed: %v", err)
+		// Check if we have a result with error details
+		if result == nil {
+			// Tool not found or invalid parameters - return Go error (stops workflow)
+			return nil, fmt.Errorf("tool execution failed: %w", err)
+		}
+		// Tool executed but failed - result contains error details
+		// Continue to return the result to the workflow
+		logger.Warnf("⚠️  ActionTool: Tool failed but returning result for workflow handling")
+	}
+
+	if result.Success {
+		logger.Infof("✅ ActionTool: Tool executed successfully: %s", result.Message)
+	} else {
+		logger.Warnf("⚠️  ActionTool: Tool execution reported failure: %s", result.Error)
+	}
+
+	// Create ActionWorkflowResult with tool result
+	logger.Debug("🔧 ActionTool: Creating ActionWorkflowResult")
+	resultAction := core.NewAction(core.ActionWorkflowResult)
+	if resultAction.Input == nil {
+		resultAction.Input = make(map[core.InputType]any)
+	}
+	resultAction.Input[core.InputToolResult] = result
+	resultAction.SourceWorkflow = a.SourceWorkflow
+
+	logger.Debug("🔧 ActionTool: Returning result action")
+	return []*Action{resultAction}, nil
 }
 
 func ActionUserMessage(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action) ([]*Action, error){

@@ -14,6 +14,19 @@ const (
 	confidenceThresholdChangeWorkflow = 0.8
 )
 
+// TODO: Future Enhancement - Intent Clarification Flow
+// When the Intent AI is unsure (confidence below threshold but not zero), it should be able to:
+// 1. Ask the user a clarifying question (e.g., "Did you want to switch to querying tickets, or continue testing?")
+// 2. Interject the main orchestrator flow to wait for user response
+// 3. Re-analyze intent with the clarifying response
+//
+// This requires:
+// - New data structures to track "waiting for intent clarification" state
+// - New action type (e.g., ActionIntentClarification) to pause orchestrator flow
+// - Ability to resume intent analysis after receiving clarification
+// - Storage of "pending intent options" that we're asking the user to choose between
+//
+// Benefits: Higher confidence in user intent, better UX for ambiguous requests
 func AnalyzeIntent(message *core.Message, ctx *core.ConversationContext) core.Intent {
 	aiResponse, err := callIntentAI(message, ctx)
 	if err != nil {
@@ -194,6 +207,14 @@ func buildIntentPrompt(message *core.Message, ctx *core.ConversationContext) str
 	prompt += "## User's Current Message\n"
 	prompt += message.Message + "\n\n"
 
+	// Add workflow switch signals
+	prompt += "## Workflow Switch Signals\n"
+	prompt += "The following phrases indicate the user wants to CHANGE workflows:\n"
+	prompt += "- \"let's change the topic\" / \"change topic\" / \"switch topic\"\n"
+	prompt += "- \"switch to\" / \"move to\" / \"go to\"\n"
+	prompt += "- \"I want to [action]\" / \"I need to [action]\" where action matches a different workflow\n"
+	prompt += "- \"now I want to\" / \"instead, can you\" / \"let's do [something else]\"\n\n"
+
 	prompt += "## Instructions\n"
 	prompt += "Analyze the user's message and determine:\n"
 	prompt += "1. Which workflow should handle this message\n"
@@ -201,8 +222,15 @@ func buildIntentPrompt(message *core.Message, ctx *core.ConversationContext) str
 	prompt += "3. Your confidence level (0.0 to 1.0)\n\n"
 
 	if currentWorkflow != nil {
-		prompt += "IMPORTANT: If there is an active workflow, strongly prefer to stay with it unless the user clearly wants to do something completely different. "
-		prompt += "Use high confidence (>0.8) only when you are certain the user wants to change workflows.\n"
+		prompt += "IMPORTANT: While continuity is valuable, users can clearly signal workflow changes. "
+		prompt += "When you see workflow switch signals (listed above) AND the user's request strongly matches another workflow's keywords/description, "
+		prompt += "you can naturally have higher confidence in switching workflows.\n\n"
+		prompt += "However, if only ONE of those conditions is met:\n"
+		prompt += "- Switch signal present BUT request doesn't strongly match another workflow → likely changing direction WITHIN current workflow\n"
+		prompt += "- Strong match to another workflow BUT no clear switch signal → could be a related question about that topic, not necessarily wanting to switch\n\n"
+		prompt += "In these ambiguous cases, examine whether the request makes sense within the current workflow's scope and capabilities. "
+		prompt += "If the current workflow can reasonably handle the request, prefer staying with lower confidence for switching. "
+		prompt += "If the request is clearly outside the current workflow's purpose, switching may be appropriate even with weaker signals.\n"
 	}
 
 	return prompt

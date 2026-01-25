@@ -2,6 +2,7 @@
 package workflow
 
 import (
+	"bob/internal/ai"
 	"bob/internal/orchestrator/core"
 	"fmt"
 )
@@ -17,17 +18,17 @@ const (
 
 var workflows = map[WorkflowName]WorkflowDefinition{
 	WorkflowCreateTicket: {
-		Description: "This workflow guides the user to create a new ADO work ticket",
+		Description: "Create, make, open, or submit a new Azure DevOps (ADO) work item/ticket. Use when user wants to create new tickets. Keywords: create, make, new, open, submit, add ticket/work item/task/bug/story.",
 		WorkflowFn:  CreateTicket,
 		AvailableSteps: []string{},
 	},
 	WorkflowQueryTicket: {
-		Description: "This workflow aims to fetch an ado ticket for the user by given ADO ticket id or or generic description",
+		Description: "Query, search, find, lookup, retrieve, view, or get an Azure DevOps (ADO) work item/ticket by ID or description. Use when user wants to fetch/check/see existing tickets. Keywords: query, search, find, get, lookup, retrieve, show, view, check, fetch, pull ticket/work item.",
 		WorkflowFn:  QueryTicket,
 		AvailableSteps: []string{},
 	},
 	WorkflowTestAI: {
-		Description: "Test workflow that forwards user messages to AI and returns responses",
+		Description: "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
 		WorkflowFn:  TestAI,
 		AvailableSteps: []string{},
 	},
@@ -163,23 +164,56 @@ func resetWorkflowData(c *core.ConversationContext) error {
 	return nil
 }
 
-// handleSideQuestion handles user's side question with prepared context (stub)
+// handleSideQuestion handles user's side question with prepared context
 func handleSideQuestion(c *core.ConversationContext, w WorkflowDefinition, a *core.Action) ([]*core.Action, error) {
 	// Get user's question from last message
 	messages := c.GetLastUserMessages()
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("no user messages found")
 	}
-	_ = messages[len(messages)-1] // lastMessage - TODO: Use this when integrating AI service
+	userMessage := messages[len(messages)-1].Message
 
 	workflow := c.GetCurrentWorkflow()
 	if workflow == nil {
 		return nil, fmt.Errorf("no current workflow")
 	}
 
-	// TODO: Integrate with real AI service
+	// Check if this is an AI response being returned
+	aiResponse := getInput(a, core.InputAIResponse)
+	if aiResponse != nil {
+		// Handle AI response - extract message and send to user
+		response, ok := aiResponse.(*ai.Response)
+		if !ok {
+			return nil, fmt.Errorf("invalid AI response type")
+		}
 
-	return []*core.Action{}, nil
+		message, err := response.Data().GetString("message")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get message from AI response: %w", err)
+		}
+
+		// Send the AI's response back to the user
+		userMessageAction := core.NewAction(core.ActionUserMessage)
+		if userMessageAction.Input == nil {
+			userMessageAction.Input = make(map[core.InputType]any)
+		}
+		userMessageAction.Input[core.InputMessage] = message
+
+		return []*core.Action{userMessageAction}, nil
+	}
+
+	// Create AI request for side question
+	schema := ai.NewSchema().
+		AddString("message", ai.Required(), ai.Description("The AI assistant's response to the user's question"))
+
+	systemPrompt := fmt.Sprintf("You are a helpful assistant. The user is currently working in the '%s' workflow: %s\n\nAnswer their question concisely while being aware of their current context.",
+		workflow.GetWorkflowName(), w.Description)
+
+	// Use main conversation (empty key) to maintain conversation history across workflow interactions
+	// Custom keys should only be used when workflows explicitly need isolated AI contexts
+	conversationKey := ""
+
+	return askAI(userMessage, systemPrompt, "", schema, conversationKey), nil
 }
 
 // To pass to ai...

@@ -42,13 +42,17 @@ func handleMessage(api *slackAPI.Client, orch *orchestrator.Orchestrator, ev *sl
 	logger.Debugf("📨 Message from %s in thread %s: %s", ev.User, threadid, ev.Text)
 
 	responder := func(response core.Response) error {
-		_, _, err := api.PostMessage(msg.Channel,
+		threadTS := msg.ThreadID.GetExternal()
+		logger.Debugf("🔧 Sending response with thread_ts=%s to channel=%s", threadTS, msg.Channel)
+
+		channel, timestamp, err := api.PostMessage(msg.Channel,
 			slackAPI.MsgOptionText(response.Message, false),
-			slackAPI.MsgOptionTS(msg.ThreadID.GetExternal())) // Reply in the thread
+			slackAPI.MsgOptionTS(threadTS)) // Reply in the thread
 		if err != nil {
 			logger.Errorf("❌ Failed to send response to Slack: %v", err)
 			return err
 		}
+		logger.Debugf("✅ Response sent - channel=%s, timestamp=%s, thread_ts=%s", channel, timestamp, threadTS)
 		logger.Debugf("✅ Response sent in thread %s: %s", threadid, response.Message)
 		return nil
 	}

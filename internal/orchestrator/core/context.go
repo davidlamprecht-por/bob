@@ -202,10 +202,11 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 	var wf *WorkflowContext
 	if dbContext.Workflow != nil {
 		wf = &WorkflowContext{
-			id:           *dbContext.Workflow.ID,
-			workflowName: dbContext.Workflow.WorkflowName,
-			step:         dbContext.Workflow.Step,
-			workflowData: dbContext.Workflow.WorkflowData,
+			id:              *dbContext.Workflow.ID,
+			workflowName:    dbContext.Workflow.WorkflowName,
+			step:            dbContext.Workflow.Step,
+			aiConverstation: dbContext.Workflow.MainConversationID,
+			workflowData:    dbContext.Workflow.WorkflowData,
 		}
 	}
 
@@ -238,10 +239,11 @@ func (c *ConversationContext) UpdateDB() error {
 	var dbWorkflow *database.WorkflowContext
 	if currentWorkflow != nil {
 		dbWorkflow = &database.WorkflowContext{
-			ID:           &currentWorkflow.id,
-			WorkflowName: currentWorkflow.workflowName,
-			Step:         currentWorkflow.step,
-			WorkflowData: currentWorkflow.workflowData,
+			ID:                 &currentWorkflow.id,
+			WorkflowName:       currentWorkflow.workflowName,
+			Step:               currentWorkflow.step,
+			MainConversationID: currentWorkflow.aiConverstation,
+			WorkflowData:       currentWorkflow.workflowData,
 		}
 	}
 

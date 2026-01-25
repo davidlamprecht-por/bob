@@ -16,10 +16,11 @@ func NewWorkflowRepository(db *sql.DB) *WorkflowRepository {
 
 // WorkflowContext mirrors orchestrator.WorkflowContext to avoid import cycles
 type WorkflowContext struct {
-	ID           *int
-	WorkflowName string
-	Step         string
-	WorkflowData map[string]any
+	ID                 *int
+	WorkflowName       string
+	Step               string
+	MainConversationID *string
+	WorkflowData       map[string]any
 }
 
 func (r *WorkflowRepository) SaveWorkflow(tx *sql.Tx, workflow *WorkflowContext) (int, error) {
@@ -46,11 +47,12 @@ func (r *WorkflowRepository) SaveWorkflow(tx *sql.Tx, workflow *WorkflowContext)
 func (r *WorkflowRepository) saveWorkflowInTx(tx *sql.Tx, workflow *WorkflowContext) (int, error) {
 	var workflowID int
 
-	if workflow.ID == nil {
+	// Treat both nil and 0 as "not yet in database" since 0 is not a valid auto-increment ID
+	if workflow.ID == nil || *workflow.ID == 0 {
 		// INSERT new workflow_context
 		result, err := tx.Exec(
-			"INSERT INTO workflow_context (workflow_name, workflow_step) VALUES (?, ?)",
-			workflow.WorkflowName, workflow.Step,
+			"INSERT INTO workflow_context (workflow_name, workflow_step, main_conversation_id) VALUES (?, ?, ?)",
+			workflow.WorkflowName, workflow.Step, toNullString(workflow.MainConversationID),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("failed to insert workflow context: %w", err)
@@ -60,8 +62,8 @@ func (r *WorkflowRepository) saveWorkflowInTx(tx *sql.Tx, workflow *WorkflowCont
 	} else {
 		// UPDATE existing workflow_context
 		_, err := tx.Exec(
-			"UPDATE workflow_context SET workflow_name=?, workflow_step=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-			workflow.WorkflowName, workflow.Step, *workflow.ID,
+			"UPDATE workflow_context SET workflow_name=?, workflow_step=?, main_conversation_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+			workflow.WorkflowName, workflow.Step, toNullString(workflow.MainConversationID), *workflow.ID,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("failed to update workflow context: %w", err)
@@ -95,10 +97,11 @@ func (r *WorkflowRepository) LoadWorkflow(workflowID int) (workflow *WorkflowCon
 	workflow = &WorkflowContext{}
 
 	// Load workflow_context
+	var mainConvIDNull sql.NullString
 	err = r.db.QueryRow(
-		"SELECT workflow_name, workflow_step FROM workflow_context WHERE id=?",
+		"SELECT workflow_name, workflow_step, main_conversation_id FROM workflow_context WHERE id=?",
 		workflowID,
-	).Scan(&workflow.WorkflowName, &workflow.Step)
+	).Scan(&workflow.WorkflowName, &workflow.Step, &mainConvIDNull)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load workflow context: %w", err)
@@ -106,6 +109,11 @@ func (r *WorkflowRepository) LoadWorkflow(workflowID int) (workflow *WorkflowCon
 
 	// Set the ID so the workflow knows its database ID for future updates
 	workflow.ID = &workflowID
+
+	// Set main conversation ID if present
+	if mainConvIDNull.Valid {
+		workflow.MainConversationID = &mainConvIDNull.String
+	}
 
 	// Load workflow_context_data
 	rows, err := r.db.Query(
@@ -179,4 +187,12 @@ func deserializeValue(valueStr, dataType string) any {
 	default:
 		return valueStr
 	}
+}
+
+// toNullString converts *string to sql.NullString for database operations
+func toNullString(ptr *string) sql.NullString {
+	if ptr == nil {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: *ptr, Valid: true}
 }

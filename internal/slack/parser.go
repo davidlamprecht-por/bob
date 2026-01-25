@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
 	"strconv"
 	"strings"
@@ -10,10 +11,17 @@ import (
 )
 
 func ParseMessage(ev *slackevents.MessageEvent) *core.Message {
+	// DEBUG: Log what Slack is sending
+	logger.Debugf("🔍 Slack message - TS: %s, ThreadTS: %s, Channel: %s, ChannelType: %s",
+		ev.TimeStamp, ev.ThreadTimeStamp, ev.Channel, ev.ChannelType)
+
 	// Extract thread ID - use ThreadTimeStamp if in thread, otherwise use TimeStamp
 	threadID := ev.ThreadTimeStamp
 	if threadID == "" {
 		threadID = ev.TimeStamp
+		logger.Debugf("🔍 No ThreadTS, using message TS as threadID: %s", threadID)
+	} else {
+		logger.Debugf("🔍 Using ThreadTS as threadID: %s", threadID)
 	}
 
 	// Parse Slack timestamp to time.Time

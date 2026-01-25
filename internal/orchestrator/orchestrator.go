@@ -4,6 +4,7 @@ Package orchestrator is the heart of Bob the slackbot. It manages how the user i
 package orchestrator
 
 import (
+	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
 	"bob/internal/workflow"
 	"fmt"
@@ -19,20 +20,31 @@ func (o *Orchestrator) Init(){
 }
 
 func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(response core.Response)error) error {
+	logger.Debug("🎯 Orchestrator.HandleUserMessage: Entry")
 	// TODO: Handle bursts of messages by only processing them after 1-2s as one
 
 	context := core.LoadContext(message)
+	logger.Debugf("📦 Context loaded: status=%s, workflow=%v", context.GetCurrentStatus(), context.GetCurrentWorkflow())
 
 	if msg := handleEvictedContext(context, message) ; msg != "" {
+		logger.Debug("⚠️  Context was evicted, sending recovery message")
 		responder(core.Response{Message: msg})
 	}
 
 	intent := AnalyzeIntent(message, context)
+	logger.Debugf("🧠 Intent analyzed: type=%s, workflow=%s, confidence=%.2f", intent.IntentType, intent.WorkflowName, intent.Confidence)
+
 	initialActions := ProcessUserIntent(intent)
-		
+	logger.Debugf("⚙️  Initial actions created: count=%d", len(initialActions))
+	for i, action := range initialActions {
+		logger.Debugf("   Action[%d]: type=%d", i, action.ActionType)
+	}
+
 	shouldHandleActions := RouteUserMessage(context, &intent, initialActions)
+	logger.Debugf("🚦 RouteUserMessage result: shouldHandle=%v", shouldHandleActions)
 
 	if !shouldHandleActions{
+		logger.Debug("🛑 Not handling actions this turn")
 		// If we are not starting another run, the AI might have had something to say about it
 		if intent.MessageToUser != nil{
 			responder(core.Response{Message: *intent.MessageToUser})
@@ -40,7 +52,21 @@ func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(r
 		return nil
 	}
 
+	logger.Debug("▶️  Starting action handling loop")
 	err := StartHandlingActions(initialActions, context, responder)
+	if err != nil {
+		logger.Errorf("❌ Action handling error: %v", err)
+	} else {
+		logger.Debug("✅ Action handling completed successfully")
+	}
+
+	// Save context to database after handling
+	if dbErr := context.UpdateDB(); dbErr != nil {
+		logger.Warnf("⚠️  Failed to save context to DB: %v", dbErr)
+	} else {
+		logger.Debug("💾 Context saved to database")
+	}
+
 	return err
 }
 
@@ -117,19 +143,25 @@ func RouteUserMessage (context *core.ConversationContext, intent *core.Intent, a
 }
 
 func StartHandlingActions(actionQueue []*core.Action, context *core.ConversationContext, responder func(response core.Response)error) error{
+	logger.Debugf("🔄 StartHandlingActions: Starting with %d actions", len(actionQueue))
 	// Channel for goroutines to send actions back to main loop
 	actionChan := make(chan *core.Action, 100)
 
 	// Mark as actively running
 	context.SetCurrentStatus(core.StatusRunning)
 
+	actionCount := 0
 	for len(actionQueue) > 0 {
+		actionCount++
+		logger.Debugf("🔁 Action loop iteration %d: queue size=%d", actionCount, len(actionQueue))
+
 		// If context still, or again has remaining actions, insert them now!
 		// TODO: Might want to add priorty logic later, for now, just add to back
 		actionQueue = append(actionQueue, context.PopRemainingActions()...)
 
 		// Check if we should stop (e.g., hit ActionUserWait)
 		if context.GetCurrentStatus() == core.StatusWaitForUser {
+			logger.Debug("⏸️  Waiting for user, pausing action loop")
 			// Store remaining actions for resumption
 			context.SetRemainingActions(actionQueue)
 			break
@@ -138,15 +170,18 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 		// -- Popleft steps
 		currentAction := actionQueue[0]
 		actionQueue = actionQueue[1:]
+		logger.Debugf("📤 Processing action: type=%d", currentAction.ActionType)
 		// --
 
 		newActions, err := ProcessAction(currentAction, context, responder, actionChan) // TODO: this might need to be done here in orchestrator to be able to keep action callable by other layers
+		logger.Debugf("📥 ProcessAction returned: %d new actions, error=%v", len(newActions), err)
 		actionQueue = append(actionQueue, newActions...)
 
 		// Drain channel (non-blocking) to collect any actions from goroutines
 		for {
 			select {
 			case action := <-actionChan:
+				logger.Debug("📨 Received action from goroutine channel")
 				actionQueue = append(actionQueue, action)
 			default:
 				goto continueLoop
@@ -155,14 +190,18 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 		continueLoop:
 
 		if err != nil {
+			logger.Errorf("❌ Action processing failed: %v", err)
 			context.SetCurrentStatus(core.StatusError)
 			context.SetRemainingActions(actionQueue)
 			return err
 		}
 	}
 
+	logger.Debug("🏁 Action loop completed")
+
 	// If we finished normally (not waiting), mark as idle
 	if context.GetCurrentStatus() == core.StatusRunning {
+		logger.Debug("✓ Marking context as idle")
 		context.SetCurrentStatus(core.StatusIdle)
 		context.SetRemainingActions(nil) // just to make sure
 	}

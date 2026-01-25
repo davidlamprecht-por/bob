@@ -173,7 +173,7 @@ func buildIntentPrompt(message *core.Message, ctx *core.ConversationContext) str
 
 	currentWorkflow := ctx.GetCurrentWorkflow()
 	if currentWorkflow != nil {
-		prompt += fmt.Sprintf("## Current Context\n")
+		prompt += "## Current Context\n"
 		prompt += fmt.Sprintf("Active Workflow: %s\n", currentWorkflow.GetWorkflowName())
 		prompt += fmt.Sprintf("Current Step: %s\n\n", currentWorkflow.GetStep())
 	} else {

@@ -24,6 +24,7 @@ const (
 	ActionUserMessage // Sending a message to user, not expecting a result
 	ActionUserWait    // Sending a message to user, expecting a result = blocking
 	ActionAsync
+	ActionCompleteAsync // Signal that async operations are complete
 )
 
 type InputType string

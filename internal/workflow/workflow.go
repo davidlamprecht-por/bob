@@ -30,7 +30,7 @@ var workflows = map[WorkflowName]WorkflowDefinition{
 	WorkflowTestAI: {
 		Description: "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
 		WorkflowFn:  TestAI,
-		AvailableSteps: []string{},
+		AvailableSteps: []string{"handle_async_results", "call_tool"},
 	},
 }
 
@@ -212,7 +212,14 @@ func handleSideQuestion(c *core.ConversationContext, w WorkflowDefinition, a *co
 	// Custom keys should only be used when workflows explicitly need isolated AI contexts
 	conversationKey := ""
 
-	return askAI(userMessage, systemPrompt, "", schema, conversationKey), nil
+	actions := askAI(userMessage, systemPrompt, "", schema, conversationKey)
+	// Set the step on the AI action if not already set by the workflow
+	if len(actions) > 0 && actions[0].Input != nil {
+		if _, hasStep := actions[0].Input[core.InputStep]; !hasStep {
+			actions[0].Input[core.InputStep] = StepUserAsksQuestion
+		}
+	}
+	return actions, nil
 }
 
 // To pass to ai...

@@ -8,6 +8,7 @@ import (
 	"bob/internal/orchestrator/core"
 	"bob/internal/workflow"
 	"fmt"
+	"sync/atomic"
 )
 
 type Orchestrator struct {
@@ -150,16 +151,12 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 	// Mark as actively running
 	context.SetCurrentStatus(core.StatusRunning)
 
+	// Track pending async operations (int32 for atomic operations)
+	var pendingAsyncCount int32 = 0
+
 	actionCount := 0
-	for len(actionQueue) > 0 {
-		actionCount++
-		logger.Debugf("🔁 Action loop iteration %d: queue size=%d", actionCount, len(actionQueue))
-
-		// If context still, or again has remaining actions, insert them now!
-		// TODO: Might want to add priorty logic later, for now, just add to back
-		actionQueue = append(actionQueue, context.PopRemainingActions()...)
-
-		// Check if we should stop (e.g., hit ActionUserWait)
+	for {
+		// Check if we should stop (waiting for user) - MUST check this FIRST
 		if context.GetCurrentStatus() == core.StatusWaitForUser {
 			logger.Debug("⏸️  Waiting for user, pausing action loop")
 			// Store remaining actions for resumption
@@ -167,14 +164,36 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 			break
 		}
 
+		// Check if we're truly done (atomic read)
+		currentPending := atomic.LoadInt32(&pendingAsyncCount)
+		if len(actionQueue) == 0 && currentPending == 0 {
+			logger.Debug("🏁 Action queue empty and no pending async operations")
+			break
+		}
+
+		// If queue is empty but we have pending async, wait for results
+		if len(actionQueue) == 0 && currentPending > 0 {
+			logger.Debugf("⏳ Queue empty but %d async operations pending, waiting on channel...", currentPending)
+			action := <-actionChan
+			logger.Debug("📨 Received action from async operation")
+			actionQueue = append(actionQueue, action)
+		}
+
+		actionCount++
+		logger.Debugf("🔁 Action loop iteration %d: queue size=%d, pending async=%d", actionCount, len(actionQueue), atomic.LoadInt32(&pendingAsyncCount))
+
+		// If context still, or again has remaining actions, insert them now!
+		// TODO: Might want to add priorty logic later, for now, just add to back
+		actionQueue = append(actionQueue, context.PopRemainingActions()...)
+
 		// -- Popleft steps
 		currentAction := actionQueue[0]
 		actionQueue = actionQueue[1:]
 		logger.Debugf("📤 Processing action: type=%d", currentAction.ActionType)
 		// --
 
-		newActions, err := ProcessAction(currentAction, context, responder, actionChan) // TODO: this might need to be done here in orchestrator to be able to keep action callable by other layers
-		logger.Debugf("📥 ProcessAction returned: %d new actions, error=%v", len(newActions), err)
+		newActions, err := ProcessAction(currentAction, context, responder, actionChan, &pendingAsyncCount)
+		logger.Debugf("📥 ProcessAction returned: %d new actions, error=%v, pending async=%d", len(newActions), err, pendingAsyncCount)
 		actionQueue = append(actionQueue, newActions...)
 
 		// Drain channel (non-blocking) to collect any actions from goroutines
@@ -196,8 +215,6 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 			return err
 		}
 	}
-
-	logger.Debug("🏁 Action loop completed")
 
 	// If we finished normally (not waiting), mark as idle
 	if context.GetCurrentStatus() == core.StatusRunning {

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 )
 
 type (
@@ -17,7 +18,7 @@ type (
 	Response = core.Response
 )
 
-func ProcessAction(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action) ([]*Action, error){
+func ProcessAction(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action, pendingAsyncCount *int32) ([]*Action, error){
 	logger.Debugf("🎬 ProcessAction: type=%d", a.ActionType)
 
 	var result []*Action
@@ -44,7 +45,10 @@ func ProcessAction(a *Action, ctx *ConversationContext, responder func(response 
 		result, err = ActionUserWait(a, ctx, responder, actionChan)
 	case core.ActionAsync:
 		logger.Debug("   → ActionAsync")
-		result, err = ActionAsync(a, ctx, responder, actionChan)
+		result, err = ActionAsync(a, ctx, responder, actionChan, pendingAsyncCount)
+	case core.ActionCompleteAsync:
+		logger.Debug("   → ActionCompleteAsync")
+		result, err = ActionCompleteAsync(a, ctx, responder, actionChan, pendingAsyncCount)
 	default:
 		logger.Debugf("   → Unknown action type: %d", a.ActionType)
 	}
@@ -122,6 +126,10 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 			resultAction.Input = make(map[core.InputType]any)
 		}
 		resultAction.Input[core.InputAIResponse] = response
+		// Copy the step from source action so workflow knows which step to execute
+		if step, ok := a.Input[core.InputStep]; ok {
+			resultAction.Input[core.InputStep] = step
+		}
 		resultAction.SourceWorkflow = a.SourceWorkflow
 
 		return []*Action{resultAction}, nil
@@ -152,6 +160,10 @@ func ActionTool(a *Action, ctx *ConversationContext, responder func(response Res
 		resultAction.Input = make(map[core.InputType]any)
 	}
 	resultAction.Input[core.InputToolResult] = result
+	// Copy the step from source action so workflow knows which step to execute
+	if step, ok := a.Input[core.InputStep]; ok {
+		resultAction.Input[core.InputStep] = step
+	}
 	resultAction.SourceWorkflow = a.SourceWorkflow
 
 	return []*Action{resultAction}, nil
@@ -191,19 +203,52 @@ func ActionUserWait(a *Action, ctx *ConversationContext, responder func(response
 		return nil, nil
 }
 
-func ActionAsync(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action) ([]*Action, error){
+func ActionAsync(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action, pendingAsyncCount *int32) ([]*Action, error){
 		logger.Debugf("🔀 ActionAsync: Spawning %d goroutines", len(a.AsyncActions))
+
+		// Count non-complete actions and check if we have a complete signal
+		nonCompleteCount := 0
+		hasComplete := false
+		for _, subAction := range a.AsyncActions {
+			if subAction.ActionType == core.ActionCompleteAsync {
+				hasComplete = true
+			} else {
+				nonCompleteCount++
+			}
+		}
+
+		// Adjust counter based on what this async action contains (thread-safe)
+		if !hasComplete {
+			// Starting new async operation
+			atomic.AddInt32(pendingAsyncCount, 1)
+			logger.Debugf("🔀 ActionAsync: Starting new async (counter: %d)", atomic.LoadInt32(pendingAsyncCount))
+		} else if nonCompleteCount == 1 {
+			// Just wrapping up with complete + 1 action (don't increment, complete will process and decrement)
+			logger.Debugf("🔀 ActionAsync: Wrapping async completion (counter stays: %d)", atomic.LoadInt32(pendingAsyncCount))
+		} else {
+			// Multiple actions + complete = starting new async while completing old
+			atomic.AddInt32(pendingAsyncCount, 1)
+			logger.Debugf("🔀 ActionAsync: Starting new async + completing old (counter: %d)", atomic.LoadInt32(pendingAsyncCount))
+		}
+
 		// Spawn goroutines for each sub-action
 		for i, subAction := range a.AsyncActions {
 			go func(action *Action, index int) {
 				logger.Debugf("🔀 ActionAsync: Processing sub-action %d", index)
-				// Process the action in parallel
-				newActions, _ := ProcessAction(action, ctx, responder, actionChan)
+				// Process the action in parallel - pass the SAME counter (thread-safe with atomic)
+				newActions, _ := ProcessAction(action, ctx, responder, actionChan, pendingAsyncCount)
 				// Send new actions back to main loop via channel
 				for _, newAction := range newActions {
 					actionChan <- newAction
 				}
 			}(subAction, i)
 		}
+		return nil, nil
+}
+
+func ActionCompleteAsync(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action, pendingAsyncCount *int32) ([]*Action, error){
+		logger.Debug("✅ ActionCompleteAsync: Decrementing async counter")
+		atomic.AddInt32(pendingAsyncCount, -1)
+		logger.Debugf("✅ ActionCompleteAsync: Async operation completed (counter: %d)", atomic.LoadInt32(pendingAsyncCount))
 		return nil, nil
 }

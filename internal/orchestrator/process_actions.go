@@ -4,6 +4,7 @@ import (
 	"bob/internal/ai"
 	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
+	"bob/internal/tool"
 	"bob/internal/workflow"
 	"context"
 	"errors"
@@ -127,7 +128,33 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 }
 
 func ActionTool(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action) ([]*Action, error){
-	return nil, nil
+	logger.Debug("🔧 ActionTool: Extracting input data")
+	// Extract input data
+	toolName := a.Input[core.InputToolName].(tool.ToolName)
+	toolArgs, _ := a.Input[core.InputToolArgs].(map[string]any)
+
+	logger.Debugf("🔧 ActionTool: toolName=%q, toolArgs=%v", toolName, toolArgs)
+
+	// Call tool
+	logger.Debug("🔧 ActionTool: Calling tool.RunTool")
+	result, err := tool.RunTool(ctx, toolName, toolArgs)
+	if err != nil {
+		logger.Errorf("❌ ActionTool: Tool execution failed: %v", err)
+		return nil, fmt.Errorf("tool execution failed: %w", err)
+	}
+
+	logger.Infof("✅ ActionTool: Tool executed successfully")
+
+	// Create ActionWorkflowResult with tool result
+	logger.Debug("🔧 ActionTool: Creating ActionWorkflowResult")
+	resultAction := core.NewAction(core.ActionWorkflowResult)
+	if resultAction.Input == nil {
+		resultAction.Input = make(map[core.InputType]any)
+	}
+	resultAction.Input[core.InputToolResult] = result
+	resultAction.SourceWorkflow = a.SourceWorkflow
+
+	return []*Action{resultAction}, nil
 }
 
 func ActionUserMessage(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action) ([]*Action, error){

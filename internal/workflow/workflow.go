@@ -54,7 +54,6 @@ const (
 )
 
 type WorkflowDefinition struct {
-	Name        WorkflowName
 	Description string
 	AvailableSteps []string
 

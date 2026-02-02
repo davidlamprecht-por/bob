@@ -7,17 +7,21 @@ import (
 	"fmt"
 )
 
-const (
-	// ToolADOQueryTicket ToolName = "adoQueryTicket"
-	// ToolADOCreateTicket ToolName = "adoCreateTicket"
-	ToolSampleData ToolName = "sampleData"
-)
-
 var tools = map[ToolName]ToolDefinition{
-	ToolSampleData: {
-		Description:  "This is for testing and will return a random phrase",
-		ToolFn:       SampleData,
-		ArgsRequired: SampleDataArgs,
+	ToolADOCreateTicket: {
+		Description:  "Create a new work item (User Story, Technical Debt, or Defect) in Azure DevOps. Required fields: work_item_type, title, description. Optional fields: area_path, iteration_path, tags, test_requirements, acceptance_criteria (stories), story_points (stories), severity (defects), expected_result (defects), actual_result (defects), case_number (defects), emergent_defect (defects).",
+		ToolFn:       ADOCreateTicket,
+		ArgsRequired: ADOCreateTicketArgs,
+	},
+	ToolADOSearchTickets: {
+		Description:  "Search for work items in Azure DevOps using comprehensive filters. All parameters are optional - use any combination to find work items. Supports: id (exact), title (keywords), state, assigned_to, work_item_type, tags (any match), area_path, iteration_path, created_by, severity, story_points, qa_person, emergent_defect. Returns list of matching work items with details.",
+		ToolFn:       ADOSearchTickets,
+		ArgsRequired: ADOSearchTicketsArgs,
+	},
+	ToolADOGetMetadata: {
+		Description:  "Retrieve metadata from Azure DevOps to help with filtering and queries. Returns available values for: tags (all distinct tags), area_paths (area hierarchy), iteration_paths (sprint/iteration list), states (valid states per work item type), work_item_types (available types), team_members (assignable users - display names only), severity_values (valid severity values for defects). Use this before searching to get exact filter values.",
+		ToolFn:       ADOGetMetadata,
+		ArgsRequired: ADOGetMetadataArgs,
 	},
 }
 

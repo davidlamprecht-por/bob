@@ -4,13 +4,11 @@ import (
 	"bob/internal/ai"
 	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
-	"bob/internal/tool"
 	"fmt"
 )
 
 const (
 	StepHandleAsyncResults = "handle_async_results"
-	StepCallTool           = "call_tool"
 	StepSendResults        = "send_results"
 )
 
@@ -109,75 +107,37 @@ func TestAI(context *core.ConversationContext, sourceAction *core.Action) ([]*co
 		hasMainMessage := workflow.GetWorkflowData("main_message") != nil
 
 		if hasCategory && hasMainMessage {
-			// Both received! Call the tool and signal async completion
-			logger.Debug("🔷 TestAI workflow: Both async results received, calling tool")
+			// Both received! Send combined response
+			logger.Debug("🔷 TestAI workflow: Both async results received")
 			category := workflow.GetWorkflowData("category").(string)
+			mainMessage := workflow.GetWorkflowData("main_message").(string)
 
-			toolAction := core.NewAction(core.ActionTool)
-			if toolAction.Input == nil {
-				toolAction.Input = make(map[core.InputType]any)
+			// Send combined message
+			combinedMessage := fmt.Sprintf("**AI Response:**\n%s\n\n**Random Category Selected:** %s", mainMessage, category)
+
+			messageAction := core.NewAction(core.ActionUserMessage)
+			if messageAction.Input == nil {
+				messageAction.Input = make(map[core.InputType]any)
 			}
-			toolAction.Input[core.InputStep] = StepCallTool
-			toolAction.Input[core.InputToolName] = tool.ToolSampleData
-			toolAction.Input[core.InputToolArgs] = map[string]any{"category": category}
-			toolAction.SourceWorkflow = "testAI"
+			messageAction.Input[core.InputMessage] = combinedMessage
+
+			// Send wait message
+			waitAction := core.NewAction(core.ActionUserWait)
+			if waitAction.Input == nil {
+				waitAction.Input = make(map[core.InputType]any)
+			}
+			waitAction.Input[core.InputMessage] = "How can I assist you?"
 
 			// Create complete async signal
 			completeAction := core.NewAction(core.ActionCompleteAsync)
 
-			// Wrap both in an async container
-			asyncAction := core.NewAction(core.ActionAsync)
-			asyncAction.AsyncActions = []*core.Action{toolAction, completeAction}
-
-			logger.Debug("🔷 TestAI workflow: Returning tool action + async complete signal")
-			return []*core.Action{asyncAction}, nil
+			logger.Debug("🔷 TestAI workflow: Returning messages + async complete signal")
+			return []*core.Action{messageAction, waitAction, completeAction}, nil
 		}
 
 		// Still waiting for the other result
 		logger.Debug("🔷 TestAI workflow: Waiting for more async results")
 		return nil, nil
-
-	case StepCallTool:
-		logger.Debug("🔷 TestAI workflow: StepCallTool - Handling tool result")
-		// Handle tool result
-		toolResult := getInput(sourceAction, core.InputToolResult)
-		if toolResult == nil {
-			logger.Error("❌ TestAI workflow: No tool result")
-			return nil, fmt.Errorf("expected tool result but got none")
-		}
-
-		resultMap, ok := toolResult.(map[string]any)
-		if !ok {
-			logger.Errorf("❌ TestAI workflow: Invalid tool result type: %T", toolResult)
-			return nil, fmt.Errorf("invalid tool result type")
-		}
-
-		sampleDataResult := resultMap["result"].(string)
-		logger.Debugf("🔷 TestAI workflow: Got tool result: %s", sampleDataResult)
-
-		// Get the stored category
-		category := workflow.GetWorkflowData("category").(string)
-
-		// Send first message: just the sample data (non-blocking)
-		sampleDataMessage := fmt.Sprintf("**Random Sample Data (category: %s):**\n%s", category, sampleDataResult)
-
-		sampleDataAction := core.NewAction(core.ActionUserMessage)
-		if sampleDataAction.Input == nil {
-			sampleDataAction.Input = make(map[core.InputType]any)
-		}
-		sampleDataAction.Input[core.InputMessage] = sampleDataMessage
-
-		// Send second message: ask how to assist (blocking)
-		waitMessage := "How can I assist you?"
-
-		waitAction := core.NewAction(core.ActionUserWait)
-		if waitAction.Input == nil {
-			waitAction.Input = make(map[core.InputType]any)
-		}
-		waitAction.Input[core.InputMessage] = waitMessage
-
-		logger.Debug("🔷 TestAI workflow: Sending sample data + wait for user")
-		return []*core.Action{sampleDataAction, waitAction}, nil
 
 	default:
 		logger.Warnf("⚠️  TestAI workflow: Unknown step: %v", step)

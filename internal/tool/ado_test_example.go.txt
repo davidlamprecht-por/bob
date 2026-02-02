@@ -1,0 +1,126 @@
+package main
+
+// This is an example showing how to call the ADO tools directly without workflow integration
+// To use this, rename to .go and run: go run internal/tool/ado_test_example.go
+
+import (
+	"bob/internal/config"
+	"bob/internal/logger"
+	"bob/internal/orchestrator/core"
+	"bob/internal/tool"
+	"fmt"
+)
+
+func main() {
+	// Initialize configuration (loads from .env file)
+	config.Init()
+
+	// Initialize logger
+	logger.Init()
+
+	// Create a minimal conversation context (tools don't actually use it, but required by signature)
+	ctx := &core.ConversationContext{}
+
+	fmt.Println("=== Testing ADO Create Ticket Tool ===")
+
+	// Example 1: Create a User Story
+	createArgs := map[string]any{
+		"work_item_type": "User Story",
+		"title":          "Test Story Created by Bob",
+		"description":    "This is a test user story created directly through the tool",
+		"tags":           []any{"test", "automation"},
+		"acceptance_criteria": "Given a test\nWhen I run it\nThen it should pass",
+		"story_points":   5.0,
+	}
+
+	result, err := tool.RunTool(ctx, tool.ToolADOCreateTicket, createArgs)
+	if err != nil {
+		fmt.Printf("❌ Error creating work item: %v\n", err)
+	} else {
+		fmt.Printf("✅ Success! Created work item #%v\n", result["id"])
+		fmt.Printf("   URL: %s\n", result["url"])
+		fmt.Printf("   Title: %s\n", result["title"])
+		fmt.Printf("   Type: %s\n", result["work_item_type"])
+		fmt.Printf("   Message: %s\n\n", result["message"])
+	}
+
+	// Example 2: Create a Defect
+	defectArgs := map[string]any{
+		"work_item_type": "Defect",
+		"title":          "Test Defect Created by Bob",
+		"description":    "This is a test defect",
+		"severity":       "High",
+		"emergent_defect": true,
+		"expected_result": "System should work",
+		"actual_result":   "System does not work",
+		"tags":            []any{"test", "bug"},
+	}
+
+	result2, err := tool.RunTool(ctx, tool.ToolADOCreateTicket, defectArgs)
+	if err != nil {
+		fmt.Printf("❌ Error creating defect: %v\n", err)
+	} else {
+		fmt.Printf("✅ Success! Created defect #%v\n", result2["id"])
+		fmt.Printf("   URL: %s\n\n", result2["url"])
+
+		// Now test retrieving it
+		fmt.Println("=== Testing ADO Get Ticket Tool ===")
+
+		workItemID := result2["id"]
+		getArgs := map[string]any{
+			"work_item_id": workItemID,
+		}
+
+		result3, err := tool.RunTool(ctx, tool.ToolADOGetTicket, getArgs)
+		if err != nil {
+			fmt.Printf("❌ Error retrieving work item: %v\n", err)
+		} else {
+			fmt.Printf("✅ Success! Retrieved work item #%v\n", result3["id"])
+			fmt.Printf("   Title: %s\n", result3["title"])
+			fmt.Printf("   Type: %s\n", result3["work_item_type"])
+			fmt.Printf("   State: %s\n", result3["state"])
+			fmt.Printf("   Assigned To: %s\n", result3["assigned_to"])
+			fmt.Printf("   Created By: %s\n", result3["created_by"])
+			fmt.Printf("   Tags: %v\n", result3["tags"])
+			fmt.Printf("   Created: %s\n", result3["created_date"])
+			fmt.Printf("   Changed: %s\n", result3["changed_date"])
+		}
+	}
+
+	// Example 3: Search for work items
+	fmt.Println("\n=== Testing ADO Search Tickets Tool ===")
+
+	// Search by title keywords
+	searchArgs := map[string]any{
+		"title":       "Bob",
+		"max_results": 5,
+	}
+
+	result4, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, searchArgs)
+	if err != nil {
+		fmt.Printf("❌ Error searching work items: %v\n", err)
+	} else {
+		fmt.Printf("✅ Success! Found %v work items\n", result4["count"])
+		workItems := result4["work_items"].([]map[string]any)
+		for i, item := range workItems {
+			fmt.Printf("   [%d] #%v - %s (%s) - %s\n",
+				i+1, item["id"], item["title"], item["work_item_type"], item["state"])
+		}
+	}
+
+	// Search with multiple filters
+	fmt.Println("\n=== Search with Multiple Filters ===")
+	searchArgs2 := map[string]any{
+		"work_item_type": "Defect",
+		"state":          "New",
+		"tags":           []any{"test"},
+		"max_results":    10,
+	}
+
+	result5, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, searchArgs2)
+	if err != nil {
+		fmt.Printf("❌ Error searching: %v\n", err)
+	} else {
+		fmt.Printf("✅ Found %v defects with 'test' tag in 'New' state\n", result5["count"])
+	}
+}

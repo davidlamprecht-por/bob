@@ -3,6 +3,7 @@ package workflow
 import (
 	"bob/internal/ai"
 	"bob/internal/orchestrator/core"
+	"fmt"
 )
 
 func getInput(a *core.Action, i core.InputType) any{
@@ -18,6 +19,12 @@ func getInput(a *core.Action, i core.InputType) any{
 	return inputVal
 }
 
+
+// subWorkerKey returns a namespaced workflowData key for a sub-worker.
+// All sub-worker state lives under "sw_{id}_{key}" to avoid collisions.
+func subWorkerKey(id string, key string) string {
+	return fmt.Sprintf("sw_%s_%s", id, key)
+}
 
 // askAI creates an ActionAi action for sending a message to the AI layer
 // Parameters:

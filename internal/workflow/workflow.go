@@ -11,9 +11,11 @@ import (
 // All you need to do is define workflows here.
 
 const (
-	WorkflowCreateTicket WorkflowName = "createTicket"
-	WorkflowQueryTicket  WorkflowName = "queryTicket"
-	WorkflowTestAI       WorkflowName = "testAI"
+	WorkflowCreateTicket    WorkflowName = "createTicket"
+	WorkflowQueryTicket     WorkflowName = "queryTicket"
+	WorkflowTestAI          WorkflowName = "testAI"
+	WorkflowTestSubworkflows WorkflowName = "testSubworkflows"
+	WorkflowTestSubWorker   WorkflowName = "testSubWorker"
 )
 
 var workflows = map[WorkflowName]WorkflowDefinition{
@@ -31,6 +33,17 @@ var workflows = map[WorkflowName]WorkflowDefinition{
 		Description: "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
 		WorkflowFn:  TestAI,
 		AvailableSteps: []string{"handle_async_results", "call_tool"},
+	},
+	WorkflowTestSubworkflows: {
+		Description: "Tests sub-workflow dispatch, async execution, personality registry, and context propagation. Trigger with: 'test subworkflows'.",
+		WorkflowFn:  TestSubworkflows,
+		AvailableSteps: []string{StepTswSpawnWorkers, StepTswCollectResult, StepTswSendSummary},
+	},
+	WorkflowTestSubWorker: {
+		Description: "Internal sub-worker for testSubworkflows.",
+		Internal:    true,
+		WorkflowFn:  TestSubWorker,
+		AvailableSteps: []string{StepSubWorkerRun},
 	},
 }
 
@@ -56,6 +69,7 @@ const (
 type WorkflowDefinition struct {
 	Description string
 	AvailableSteps []string
+	Internal bool // Internal workflows are not user-triggerable and hidden from the intent analyzer
 
 	WorkflowFn func(context *core.ConversationContext, sourceAction *core.Action) ([]*core.Action, error)
 	Options map[Option]any
@@ -64,11 +78,20 @@ type WorkflowDefinition struct {
 
 // RunWorkflow will run any workflow
 func RunWorkflow(context *core.ConversationContext, sourceAction *core.Action) ([]*core.Action, error) {
-	cw := context.GetCurrentWorkflow()
-	if cw == nil {
-		return nil, fmt.Errorf("no current workflow set")
+	// Check if the action specifies a target workflow (sub-workflow dispatch)
+	var wf WorkflowName
+	if sourceAction.Input != nil {
+		if name, ok := sourceAction.Input[core.InputWorkflowName].(WorkflowName); ok && name != "" {
+			wf = name
+		}
 	}
-	wf := WorkflowName(cw.GetWorkflowName())
+	if wf == "" {
+		cw := context.GetCurrentWorkflow()
+		if cw == nil {
+			return nil, fmt.Errorf("no current workflow set")
+		}
+		wf = WorkflowName(cw.GetWorkflowName())
+	}
 	workflow, ok := workflows[wf]
 	if !ok {
 		return nil, fmt.Errorf("unknown workflow: %q", wf)
@@ -233,6 +256,9 @@ type WorkflowInfo struct {
 func AvailableWorkflows() []WorkflowInfo {
 	out := make([]WorkflowInfo, 0, len(workflows))
 	for name, def := range workflows {
+		if def.Internal {
+			continue
+		}
 		out = append(out, WorkflowInfo{
 			Name: name,
 			Description: def.Description,

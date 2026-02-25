@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 )
 
 type WorkflowRepository struct {
@@ -159,6 +161,15 @@ func serializeValue(value any) (dataType, valueStr string) {
 	case bool:
 		return "boolean", fmt.Sprintf("%t", v)
 	default:
+		// Generic pointer handling — dereference and prefix type with "ptr_"
+		rv := reflect.ValueOf(v)
+		if rv.Kind() == reflect.Ptr {
+			if rv.IsNil() {
+				return "ptr_nil", ""
+			}
+			innerType, innerValue := serializeValue(rv.Elem().Interface())
+			return "ptr_" + innerType, innerValue
+		}
 		// Complex types -> JSON
 		jsonBytes, _ := json.Marshal(v)
 		return "json", string(jsonBytes)
@@ -180,11 +191,23 @@ func deserializeValue(valueStr, dataType string) any {
 		return f
 	case "boolean":
 		return valueStr == "true"
+	case "ptr_nil":
+		return nil
 	case "json":
 		var result any
 		json.Unmarshal([]byte(valueStr), &result)
 		return result
 	default:
+		// Generic pointer reconstruction — "ptr_<innerType>" -> &innerValue
+		if strings.HasPrefix(dataType, "ptr_") {
+			inner := deserializeValue(valueStr, dataType[4:])
+			if inner == nil {
+				return nil
+			}
+			rv := reflect.New(reflect.TypeOf(inner))
+			rv.Elem().Set(reflect.ValueOf(inner))
+			return rv.Interface()
+		}
 		return valueStr
 	}
 }

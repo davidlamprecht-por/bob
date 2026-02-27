@@ -203,6 +203,57 @@ func ActionUserWait(a *Action, ctx *ConversationContext, responder func(response
 		return nil, nil
 }
 
+const maxGoroutineIterations = 20
+
+// canRunInGoroutine returns true for action types that can be processed inside a goroutine's mini-loop.
+func canRunInGoroutine(t core.ActionType) bool {
+	switch t {
+	case core.ActionWorkflow, core.ActionWorkflowResult, core.ActionAi, core.ActionTool:
+		return true
+	default:
+		return false
+	}
+}
+
+// runAsyncSubtask runs a mini action loop inside a goroutine.
+// It processes actions that canRunInGoroutine directly; all others are sent to the main loop via actionChan.
+// When a nested ActionAsync is encountered it is NOT spawned as goroutines — its sub-actions are queued
+// sequentially in the current goroutine instead.
+func runAsyncSubtask(initial *Action, ctx *ConversationContext, responder func(response Response) error, actionChan chan<- *Action, pendingAsyncCount *int32) {
+	queue := []*Action{initial}
+	for i := 0; len(queue) > 0 && i < maxGoroutineIterations; i++ {
+		current := queue[0]
+		queue = queue[1:]
+
+		if current.ActionType == core.ActionAsync {
+			// Flatten nested async into sequential work rather than spawning sub-goroutines
+			logger.Debugf("🔀 runAsyncSubtask: flattening nested ActionAsync (%d sub-actions)", len(current.AsyncActions))
+			queue = append(current.AsyncActions, queue...)
+			continue
+		}
+
+		if !canRunInGoroutine(current.ActionType) {
+			// Terminal / side-effect actions — hand off to main loop
+			logger.Debugf("🔀 runAsyncSubtask: forwarding action type=%d to main loop", current.ActionType)
+			actionChan <- current
+			continue
+		}
+
+		results, err := ProcessAction(current, ctx, responder, actionChan, pendingAsyncCount)
+		if err != nil {
+			logger.Errorf("❌ runAsyncSubtask: ProcessAction error: %v", err)
+			continue
+		}
+		queue = append(queue, results...)
+	}
+
+	// Safety: if cap hit or actions remain, drain to main loop
+	for _, a := range queue {
+		logger.Debugf("🔀 runAsyncSubtask: draining leftover action type=%d to main loop", a.ActionType)
+		actionChan <- a
+	}
+}
+
 func ActionAsync(a *Action, ctx *ConversationContext, responder func(response Response)error, actionChan chan<- *Action, pendingAsyncCount *int32) ([]*Action, error){
 		logger.Debugf("🔀 ActionAsync: Spawning %d goroutines", len(a.AsyncActions))
 
@@ -231,16 +282,11 @@ func ActionAsync(a *Action, ctx *ConversationContext, responder func(response Re
 			logger.Debugf("🔀 ActionAsync: Starting new async + completing old (counter: %d)", atomic.LoadInt32(pendingAsyncCount))
 		}
 
-		// Spawn goroutines for each sub-action
+		// Spawn goroutines — each runs its own mini-loop to completion
 		for i, subAction := range a.AsyncActions {
 			go func(action *Action, index int) {
-				logger.Debugf("🔀 ActionAsync: Processing sub-action %d", index)
-				// Process the action in parallel - pass the SAME counter (thread-safe with atomic)
-				newActions, _ := ProcessAction(action, ctx, responder, actionChan, pendingAsyncCount)
-				// Send new actions back to main loop via channel
-				for _, newAction := range newActions {
-					actionChan <- newAction
-				}
+				logger.Debugf("🔀 ActionAsync: Starting goroutine %d", index)
+				runAsyncSubtask(action, ctx, responder, actionChan, pendingAsyncCount)
 			}(subAction, i)
 		}
 		return nil, nil

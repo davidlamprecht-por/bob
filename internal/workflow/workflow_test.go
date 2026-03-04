@@ -22,23 +22,23 @@ func TestSubWorkerKey(t *testing.T) {
 func TestAvailableWorkflows_ExcludesInternal(t *testing.T) {
 	list := AvailableWorkflows()
 
-	// testSubWorker is Internal=true — must not appear
+	// queryTicketSearcher is Internal=true — must not appear
 	for _, wf := range list {
-		if wf.Name == WorkflowTestSubWorker {
-			t.Errorf("internal workflow %q should not appear in AvailableWorkflows()", WorkflowTestSubWorker)
+		if wf.Name == WorkflowQueryTicketSearcher {
+			t.Errorf("internal workflow %q should not appear in AvailableWorkflows()", WorkflowQueryTicketSearcher)
 		}
 	}
 
-	// testSubworkflows is NOT internal — must be present
+	// queryTicket is NOT internal — must be present
 	found := false
 	for _, wf := range list {
-		if wf.Name == WorkflowTestSubworkflows {
+		if wf.Name == WorkflowQueryTicket {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("workflow %q should appear in AvailableWorkflows()", WorkflowTestSubworkflows)
+		t.Errorf("workflow %q should appear in AvailableWorkflows()", WorkflowQueryTicket)
 	}
 }
 

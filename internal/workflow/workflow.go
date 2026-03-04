@@ -11,41 +11,17 @@ import (
 // All you need to do is define workflows here.
 
 const (
-	WorkflowCreateTicket    WorkflowName = "createTicket"
-	WorkflowQueryTicket     WorkflowName = "queryTicket"
-	WorkflowTestAI          WorkflowName = "testAI"
-	WorkflowTestSubworkflows WorkflowName = "testSubworkflows"
-	WorkflowTestSubWorker   WorkflowName = "testSubWorker"
+	WorkflowCreateTicket         WorkflowName = "createTicket"
+	WorkflowQueryTicket          WorkflowName = "queryTicket"
+	WorkflowQueryTicketSearcher  WorkflowName = "queryTicketSearcher"
+	WorkflowTestAI               WorkflowName = "testAI"
+	WorkflowTestSubworkflows     WorkflowName = "testSubworkflows"
+	WorkflowTestSubWorker        WorkflowName = "testSubWorker"
 )
 
-var workflows = map[WorkflowName]WorkflowDefinition{
-	WorkflowCreateTicket: {
-		Description: "Create, make, open, or submit a new Azure DevOps (ADO) work item/ticket. Use when user wants to create new tickets. Keywords: create, make, new, open, submit, add ticket/work item/task/bug/story.",
-		WorkflowFn:  CreateTicket,
-		AvailableSteps: []string{},
-	},
-	WorkflowQueryTicket: {
-		Description: "Query, search, find, lookup, retrieve, view, or get an Azure DevOps (ADO) work item/ticket by ID or description. Use when user wants to fetch/check/see existing tickets. Keywords: query, search, find, get, lookup, retrieve, show, view, check, fetch, pull ticket/work item.",
-		WorkflowFn:  QueryTicket,
-		AvailableSteps: []string{},
-	},
-	WorkflowTestAI: {
-		Description: "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
-		WorkflowFn:  TestAI,
-		AvailableSteps: []string{"handle_async_results", "call_tool"},
-	},
-	WorkflowTestSubworkflows: {
-		Description: "Tests sub-workflow dispatch, async execution, personality registry, and context propagation. Trigger with: 'test subworkflows'.",
-		WorkflowFn:  TestSubworkflows,
-		AvailableSteps: []string{StepTswSpawnWorkers, StepTswCollectResult, StepTswSendSummary},
-	},
-	WorkflowTestSubWorker: {
-		Description: "Internal sub-worker for testSubworkflows.",
-		Internal:    true,
-		WorkflowFn:  TestSubWorker,
-		AvailableSteps: []string{StepSubWorkerRun},
-	},
-}
+// workflows is populated in init() to avoid initialization cycles caused by
+// workflow functions (e.g. QueryTicket) that reference this map at call time.
+var workflows map[WorkflowName]WorkflowDefinition
 
 // -----------------------------------------------------------------
 
@@ -120,6 +96,30 @@ func RunWorkflow(context *core.ConversationContext, sourceAction *core.Action) (
 }
 
 func init() {
+	workflows = map[WorkflowName]WorkflowDefinition{
+		WorkflowCreateTicket: {
+			Description:    "Create, make, open, or submit a new Azure DevOps (ADO) work item/ticket. Use when user wants to create new tickets. Keywords: create, make, new, open, submit, add ticket/work item/task/bug/story.",
+			WorkflowFn:     CreateTicket,
+			AvailableSteps: []string{},
+		},
+		WorkflowQueryTicket: {
+			Description: "Query, search, find, lookup, retrieve, view, or get an Azure DevOps (ADO) work item/ticket by ID or description. Use when user wants to fetch/check/see existing tickets. Keywords: query, search, find, get, lookup, retrieve, show, view, check, fetch, pull ticket/work item.",
+			WorkflowFn:  QueryTicket,
+			AvailableSteps: []string{
+				StepQtClarify, StepQtSpawnWorkers, StepQtCollectResult,
+				StepQtAnalyze, StepQtAskRefineQuestion, StepQtHandlePick, StepQtPresentTicket,
+			},
+			Options: map[Option]any{
+				OptionOverwriteHandleDefaultSteps: true,
+			},
+		},
+		WorkflowQueryTicketSearcher: {
+			Description:    "Internal parallel search worker for queryTicket.",
+			Internal:       true,
+			WorkflowFn:     QueryTicketSearcher,
+			AvailableSteps: []string{StepQtswSearch, StepQtswEvaluate},
+		},
+	}
 	for name, def := range workflows {
 		if def.WorkflowFn == nil {
 			panic(fmt.Sprintf("workflow %q has nil WorkflowFn", name))

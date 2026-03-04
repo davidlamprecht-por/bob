@@ -134,9 +134,11 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 			resultAction.Input = make(map[core.InputType]any)
 		}
 		resultAction.Input[core.InputAIResponse] = response
-		// Copy the step from source action so workflow knows which step to execute
-		if step, ok := a.Input[core.InputStep]; ok {
-			resultAction.Input[core.InputStep] = step
+		// Copy routing inputs from source action so sub-workflow AI calls route back correctly
+		for _, key := range []core.InputType{core.InputStep, core.InputWorkflowName, core.InputSubWorkerID} {
+			if val, ok := a.Input[key]; ok {
+				resultAction.Input[key] = val
+			}
 		}
 		resultAction.SourceWorkflow = a.SourceWorkflow
 
@@ -155,11 +157,18 @@ func ActionTool(a *Action, ctx *ConversationContext, responder func(response Res
 	logger.Debug("🔧 ActionTool: Calling tool.RunTool")
 	result, err := tool.RunTool(ctx, toolName, toolArgs)
 	if err != nil {
-		logger.Errorf("❌ ActionTool: Tool execution failed: %v", err)
-		return nil, fmt.Errorf("tool execution failed: %w", err)
+		// Do NOT return the error — this would kill async sub-workers silently, leaving
+		// the parent workflow waiting forever (ActionCompleteAsync never emitted).
+		// Instead, return an empty result so the workflow can handle gracefully.
+		logger.Warnf("⚠️  ActionTool: Tool execution failed (returning empty result): %v", err)
+		result = map[string]any{
+			"count":  float64(0),
+			"items":  []any{},
+			"error":  err.Error(),
+		}
+	} else {
+		logger.Infof("✅ ActionTool: Tool executed successfully")
 	}
-
-	logger.Infof("✅ ActionTool: Tool executed successfully")
 
 	// Create ActionWorkflowResult with tool result
 	logger.Debug("🔧 ActionTool: Creating ActionWorkflowResult")
@@ -168,9 +177,11 @@ func ActionTool(a *Action, ctx *ConversationContext, responder func(response Res
 		resultAction.Input = make(map[core.InputType]any)
 	}
 	resultAction.Input[core.InputToolResult] = result
-	// Copy the step from source action so workflow knows which step to execute
-	if step, ok := a.Input[core.InputStep]; ok {
-		resultAction.Input[core.InputStep] = step
+	// Copy routing inputs from source action so sub-workflow tool calls route back correctly
+	for _, key := range []core.InputType{core.InputStep, core.InputWorkflowName, core.InputSubWorkerID} {
+		if val, ok := a.Input[key]; ok {
+			resultAction.Input[key] = val
+		}
 	}
 	resultAction.SourceWorkflow = a.SourceWorkflow
 

@@ -5,9 +5,8 @@ import "testing"
 func TestGetPersonality_KnownNames(t *testing.T) {
 	known := []PersonalityName{
 		PersonalityIntentAnalyzer,
-		PersonalityTestOrchestrator,
-		PersonalityTestSubWorker,
-		PersonalityTestEvaluator,
+		PersonalityQueryTicketOrchestrator,
+		PersonalityQueryTicketSearcher,
 	}
 	for _, name := range known {
 		p := GetPersonality(name)

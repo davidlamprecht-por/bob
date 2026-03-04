@@ -8,18 +8,19 @@ type Personality struct {
 type PersonalityName string
 
 const (
-	PersonalityIntentAnalyzer   PersonalityName = "intent_analyzer"
-	PersonalityTestOrchestrator PersonalityName = "test_orchestrator"
-	PersonalityTestSubWorker    PersonalityName = "test_sub_worker"
-	PersonalityTestEvaluator    PersonalityName = "test_evaluator"
+	PersonalityIntentAnalyzer          PersonalityName = "intent_analyzer"
+	PersonalityQueryTicketOrchestrator PersonalityName = "query_ticket_orchestrator"
+	PersonalityQueryTicketSearcher     PersonalityName = "query_ticket_searcher"
+	PersonalityTestOrchestrator        PersonalityName = "test_orchestrator"
+	PersonalityTestSubWorker           PersonalityName = "test_sub_worker"
+	PersonalityTestEvaluator           PersonalityName = "test_evaluator"
 )
 
 // List all the personalities from all the different
 var personalities = map[PersonalityName]*Personality{
-	PersonalityIntentAnalyzer:   personalityIntentAnalyzer,
-	PersonalityTestOrchestrator: personalityTestOrchestrator,
-	PersonalityTestSubWorker:    personalityTestSubWorker,
-	PersonalityTestEvaluator:    personalityTestEvaluator,
+	PersonalityIntentAnalyzer:          personalityIntentAnalyzer,
+	PersonalityQueryTicketOrchestrator: personalityQueryTicketOrchestrator,
+	PersonalityQueryTicketSearcher:     personalityQueryTicketSearcher,
 }
 
 func GetPersonality(name PersonalityName) *Personality {

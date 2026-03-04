@@ -23,6 +23,11 @@ var tools = map[ToolName]ToolDefinition{
 		ToolFn:       ADOGetMetadata,
 		ArgsRequired: ADOGetMetadataArgs,
 	},
+	ToolADOGetTicket: {
+		Description:  "Retrieve a single Azure DevOps work item by ID with full details including description, acceptance criteria, test requirements, repro steps, and all custom fields. Use after ado_search_tickets to fetch complete details for a specific ticket.",
+		ToolFn:       ADOGetTicket,
+		ArgsRequired: ADOGetTicketArgs,
+	},
 }
 
 // -----------------------------------------

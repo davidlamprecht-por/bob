@@ -4,30 +4,32 @@ Package orchestrator is the heart of Bob the slackbot. It manages how the user i
 package orchestrator
 
 import (
+	"bob/internal/ai"
 	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
 	"bob/internal/workflow"
+	"context"
 	"fmt"
 	"sync/atomic"
+	"time"
 )
 
 type Orchestrator struct {
-
 }
 
 // Init starts up the Orchestrator when the script starts
-func (o *Orchestrator) Init(){
+func (o *Orchestrator) Init() {
 
 }
 
-func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(response core.Response)error) error {
+func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(response core.Response) error) error {
 	logger.Debug("🎯 Orchestrator.HandleUserMessage: Entry")
 	// TODO: Handle bursts of messages by only processing them after 1-2s as one
 
 	context := core.LoadContext(message)
 	logger.Debugf("📦 Context loaded: status=%s, workflow=%v", context.GetCurrentStatus(), context.GetCurrentWorkflow())
 
-	if msg := handleEvictedContext(context, message) ; msg != "" {
+	if msg := handleEvictedContext(context, message); msg != "" {
 		logger.Debug("⚠️  Context was evicted, sending recovery message")
 		responder(core.Response{Message: msg})
 	}
@@ -44,12 +46,8 @@ func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(r
 	shouldHandleActions := RouteUserMessage(context, &intent, initialActions)
 	logger.Debugf("🚦 RouteUserMessage result: shouldHandle=%v", shouldHandleActions)
 
-	if !shouldHandleActions{
+	if !shouldHandleActions {
 		logger.Debug("🛑 Not handling actions this turn")
-		// If we are not starting another run, the AI might have had something to say about it
-		if intent.MessageToUser != nil{
-			responder(core.Response{Message: *intent.MessageToUser})
-		}
 		return nil
 	}
 
@@ -97,33 +95,59 @@ func handleEvictedContext(context *core.ConversationContext, _ *core.Message) st
 	return ""
 }
 
-func ProcessUserIntent(intent core.Intent) []*core.Action{
-	actions := make([]*core.Action, 0)
+func ProcessUserIntent(intent core.Intent) []*core.Action {
+	// NeedsUserInput = true means the intent analyzer asked a clarifying question and needs
+	// the user's answer before routing can proceed. A non-nil MessageToUser without
+	// NeedsUserInput is just a courtesy acknowledgment — it goes out non-blocking below.
+	if intent.NeedsUserInput && intent.MessageToUser != nil && *intent.MessageToUser != "" {
+		waitAction := core.NewAction(core.ActionUserWait)
+		waitAction.Input = map[core.InputType]any{
+			core.InputMessage: *intent.MessageToUser,
+		}
+		return []*core.Action{waitAction}
+	}
+
 	a := core.NewAction(core.ActionWorkflow)
 	a.Input = make(map[core.InputType]any)
-	switch intent.IntentType{
+
+	switch intent.IntentType {
 	case core.IntentNewWorkflow:
-		a.Input[core.InputStep] = workflow.StepInit
+		step := intent.Step
+		if step == "" {
+			step = workflow.StepInit
+		}
+		a.Input[core.InputStep] = step
 	case core.IntentAnswerQuestion:
-		a.Input[core.InputStep] = workflow.StepUserAnsweringQuestion
+		step := intent.Step
+		if step == "" {
+			step = workflow.StepUserAnsweringQuestion
+		}
+		a.Input[core.InputStep] = step
 	case core.IntentAskQuestion:
-		a.Input[core.InputStep] = workflow.StepUserAsksQuestion
+		// MessageToUser is nil/empty here (handled above), so this is a side question
+		step := intent.Step
+		if step == "" {
+			step = workflow.StepUserAsksQuestion
+		}
+		a.Input[core.InputStep] = step
 	}
-	actions = append(actions, a)
-	if intent.MessageToUser != nil && *intent.MessageToUser != "" {
-		a2 := core.NewAction(core.ActionUserMessage)
-		a2.Input[core.InputMessage] = intent.MessageToUser
-		actions = append(actions, a2)
-	}
-	return actions
+
+	return []*core.Action{a}
 }
 
-func RouteUserMessage (context *core.ConversationContext, intent *core.Intent, actions []*core.Action) (startNewLoop bool) {
+func RouteUserMessage(context *core.ConversationContext, intent *core.Intent, actions []*core.Action) (startNewLoop bool) {
 	// Case 1: Context exists and we're waiting for user response
 	if context != nil && context.GetCurrentStatus() == core.StatusWaitForUser {
-		if intent.IntentType == core.IntentNewWorkflow{
+		if intent.IntentType == core.IntentNewWorkflow {
 			context.SetCurrentWorkflow(core.NewWorkflow(intent.WorkflowName))
 			context.SetRemainingActions(nil)
+		} else if intent.WorkflowName != "" {
+			// Returning from clarifying question — route to different workflow if needed
+			current := context.GetCurrentWorkflow()
+			if current == nil || current.GetWorkflowName() != intent.WorkflowName {
+				context.SetCurrentWorkflow(core.NewWorkflow(intent.WorkflowName))
+				context.SetRemainingActions(nil)
+			}
 		}
 		context.SetCurrentStatus(core.StatusRunning)
 		return true
@@ -143,7 +167,7 @@ func RouteUserMessage (context *core.ConversationContext, intent *core.Intent, a
 	return true
 }
 
-func StartHandlingActions(actionQueue []*core.Action, context *core.ConversationContext, responder func(response core.Response)error) error{
+func StartHandlingActions(actionQueue []*core.Action, context *core.ConversationContext, responder func(response core.Response) error) error {
 	logger.Debugf("🔄 StartHandlingActions: Starting with %d actions", len(actionQueue))
 	// Channel for goroutines to send actions back to main loop
 	actionChan := make(chan *core.Action, 100)
@@ -159,14 +183,21 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 		// Check if we should stop (waiting for user) - MUST check this FIRST
 		if context.GetCurrentStatus() == core.StatusWaitForUser {
 			logger.Debug("⏸️  Waiting for user, pausing action loop")
-			// Store remaining actions for resumption
-			context.SetRemainingActions(actionQueue)
+			// Filter out stale ActionCompleteAsync — these decrement pendingAsyncCount and
+			// become invalid after a WaitForUser pause (pendingAsyncCount resets to 0 on resume).
+			filtered := make([]*core.Action, 0, len(actionQueue))
+			for _, a := range actionQueue {
+				if a.ActionType != core.ActionCompleteAsync {
+					filtered = append(filtered, a)
+				}
+			}
+			context.SetRemainingActions(filtered)
 			break
 		}
 
 		// Check if we're truly done (atomic read)
 		currentPending := atomic.LoadInt32(&pendingAsyncCount)
-		if len(actionQueue) == 0 && currentPending == 0 {
+		if len(actionQueue) == 0 && currentPending <= 0 {
 			logger.Debug("🏁 Action queue empty and no pending async operations")
 			break
 		}
@@ -206,7 +237,7 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 				goto continueLoop
 			}
 		}
-		continueLoop:
+	continueLoop:
 
 		if err != nil {
 			logger.Errorf("❌ Action processing failed: %v", err)
@@ -216,9 +247,10 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 		}
 	}
 
-	// If we finished normally (not waiting), mark as idle
+	// If we finished normally (not waiting), record history and mark as idle
 	if context.GetCurrentStatus() == core.StatusRunning {
-		logger.Debug("✓ Marking context as idle")
+		logger.Debug("✓ Recording workflow completion and marking context as idle")
+		recordWorkflowCompletion(context)
 		context.SetCurrentStatus(core.StatusIdle)
 		context.SetRemainingActions(nil) // just to make sure
 	}
@@ -228,6 +260,58 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 
 // CanExecute Helps identify if the app can do certain actions on behalf of the user
 func (o *Orchestrator) CanExecute(action core.Action, ctx *core.ConversationContext) bool {
-  // default allow for now
-  return true
+	// default allow for now
+	return true
+}
+
+// recordWorkflowCompletion generates a 1-sentence AI summary of the completed workflow and
+// appends it to the thread's workflow history. Runs synchronously before marking idle so
+// the summary is always persisted. The bot has already sent its last user-facing message
+// at this point, so the brief AI call is invisible to the user.
+func recordWorkflowCompletion(ctx *core.ConversationContext) {
+	wf := ctx.GetCurrentWorkflow()
+	if wf == nil {
+		return
+	}
+	workflowName := wf.GetWorkflowName()
+
+	// Use the first user message in this turn as the trigger message
+	triggerMsg := ""
+	messages := ctx.GetLastUserMessages()
+	if len(messages) > 0 {
+		triggerMsg = messages[0].Message
+	}
+
+	schema := ai.NewSchema().
+		AddString("summary", ai.Required(), ai.Description("One sentence summary of what the workflow did. Make sure to add specific details that makes this workflow run stand out from others like Ticket Number, Request type or other."))
+
+	prompt := fmt.Sprintf(
+		"Summarize in one sentence: the user said %q and the %q workflow ran.",
+		triggerMsg, workflowName,
+	)
+
+	summary := ""
+	response, err := ai.SendMessage(
+		context.Background(),
+		nil, // fresh conversation — no history needed
+		prompt,
+		"You are a brief workflow summarizer. Respond with a single sentence.",
+		schema,
+	)
+	if err != nil {
+		logger.Warnf("⚠️  recordWorkflowCompletion: AI summary failed: %v", err)
+	} else {
+		if s, err := response.Data().GetString("summary"); err == nil {
+			summary = s
+		}
+	}
+
+	entry := &core.WorkflowHistoryEntry{
+		WorkflowName:   workflowName,
+		TriggerMessage: triggerMsg,
+		Summary:        summary,
+		CompletedAt:    time.Now(),
+	}
+	ctx.PushWorkflowHistory(entry)
+	logger.Debugf("📚 Recorded workflow history: %s — %q", workflowName, summary)
 }

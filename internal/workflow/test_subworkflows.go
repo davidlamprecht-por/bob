@@ -27,21 +27,26 @@ func TestSubworkflows(context *core.ConversationContext, sourceAction *core.Acti
 	case StepInit:
 		logger.Debug("🔶 TestSubworkflows: StepInit - asking orchestrator how many workers")
 
+		msgAction := core.NewAction(core.ActionUserMessage)
+		msgAction.Input = map[core.InputType]any{
+			core.InputMessage: "Let me cook something up 🍳",
+		}
+
 		schema := ai.NewSchema().
 			AddInt("worker_count",
 				ai.Required(),
 				ai.Range(2, 4),
 				ai.Description("Number of sub-workers to spawn. Must be between 2 and 4 inclusive."))
 
-		actions := askAI(
+		aiActions := askAI(
 			"Decide how many sub-tasks to create. Choose a number between 2 and 4 inclusive.",
 			"",
 			personalities.GetPersonality(personalities.PersonalityTestOrchestrator).PersonalityPrompt,
 			schema,
 			"tsw_orchestrator",
 		)
-		actions[0].Input[core.InputStep] = StepTswSpawnWorkers
-		return actions, nil
+		aiActions[0].Input[core.InputStep] = StepTswSpawnWorkers
+		return append([]*core.Action{msgAction}, aiActions...), nil
 
 	case StepTswSpawnWorkers:
 		logger.Debug("🔶 TestSubworkflows: StepTswSpawnWorkers - spawning sub-workers")

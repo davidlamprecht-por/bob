@@ -2,6 +2,7 @@
 package core
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -23,6 +24,12 @@ type ConversationContext struct {
 	// State preservation for blocking/resuming
 	remainingActions []*Action
 	requestToUser    string
+
+	// Workflow history (up to maxWorkflowHistory entries, most recent last)
+	workflowHistory []*WorkflowHistoryEntry
+
+	// Prevents infinite clarification loops: true while waiting for the user's answer
+	pendingClarification bool
 
 	// Timestamp of last modification
 	lastUpdated time.Time
@@ -104,6 +111,36 @@ func (c *ConversationContext) SetRequestToUser(request string) {
 	c.lastUpdated = time.Now()
 }
 
+func (c *ConversationContext) GetWorkflowHistory() []*WorkflowHistoryEntry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.workflowHistory
+}
+
+// PushWorkflowHistory appends an entry and trims to maxWorkflowHistory.
+func (c *ConversationContext) PushWorkflowHistory(entry *WorkflowHistoryEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.workflowHistory = append(c.workflowHistory, entry)
+	if len(c.workflowHistory) > maxWorkflowHistory {
+		c.workflowHistory = c.workflowHistory[len(c.workflowHistory)-maxWorkflowHistory:]
+	}
+	c.lastUpdated = time.Now()
+}
+
+func (c *ConversationContext) GetPendingClarification() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.pendingClarification
+}
+
+func (c *ConversationContext) SetPendingClarification(v bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingClarification = v
+	c.lastUpdated = time.Now()
+}
+
 // Helper methods
 
 func (c *ConversationContext) AppendUserMessage(msg *Message) {
@@ -139,6 +176,16 @@ const (
 	StatusError       = "error"
 	StatusEvicted     = "evicted" // Context was evicted from cache while active
 )
+
+// NewConversationContext returns a minimal ConversationContext suitable for tests.
+// No DB, no cache, no Slack message resolution is required.
+func NewConversationContext() *ConversationContext {
+	return &ConversationContext{
+		currentStatus: StatusIdle,
+		lastUpdated:   time.Now(),
+		createdAt:     time.Now(),
+	}
+}
 
 func LoadContext(refMessage *Message) *ConversationContext {
 	uID, tID, err := refMessage.GetResolved()
@@ -206,7 +253,16 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 			workflowName:    dbContext.Workflow.WorkflowName,
 			step:            dbContext.Workflow.Step,
 			aiConverstation: dbContext.Workflow.MainConversationID,
+			lastResponseID:  dbContext.Workflow.LastResponseID,
 			workflowData:    dbContext.Workflow.WorkflowData,
+		}
+	}
+
+	// Unmarshal workflow history
+	var history []*WorkflowHistoryEntry
+	if dbContext.WorkflowHistory != "" {
+		if err := json.Unmarshal([]byte(dbContext.WorkflowHistory), &history); err != nil {
+			logger.Warnf("Failed to unmarshal workflow history: %v", err)
 		}
 	}
 
@@ -220,6 +276,7 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 		lastUserMessages: []*Message{}, // Not persisted, starts empty
 		remainingActions: nil,          // Action queue not persisted
 		requestToUser:    dbContext.RequestToUser,
+		workflowHistory:  history,
 		lastUpdated:      time.Now(), // Set to now on load
 		createdAt:        time.Now(), // Not persisted, approximate
 	}
@@ -232,6 +289,17 @@ func (c *ConversationContext) UpdateDB() error {
 	c.mu.RLock()
 	currentWorkflow := c.currentWorkflow
 
+	// Marshal workflow history to JSON
+	var historyJSON string
+	if len(c.workflowHistory) > 0 {
+		b, err := json.Marshal(c.workflowHistory)
+		if err != nil {
+			logger.Warnf("Failed to marshal workflow history: %v", err)
+		} else {
+			historyJSON = string(b)
+		}
+	}
+
 	// Create repository
 	repo := database.NewContextRepository(database.DB)
 
@@ -243,17 +311,19 @@ func (c *ConversationContext) UpdateDB() error {
 			WorkflowName:       currentWorkflow.workflowName,
 			Step:               currentWorkflow.step,
 			MainConversationID: currentWorkflow.aiConverstation,
+			LastResponseID:     currentWorkflow.lastResponseID,
 			WorkflowData:       currentWorkflow.workflowData,
 		}
 	}
 
 	// Save to DB (using internal IDs)
 	var dbContext = &database.Context{
-		UserID:        c.userID,
-		ThreadID:      c.threadID,
-		ContextStatus: string(c.currentStatus),
-		RequestToUser: c.requestToUser,
-		Workflow:      dbWorkflow,
+		UserID:          c.userID,
+		ThreadID:        c.threadID,
+		ContextStatus:   string(c.currentStatus),
+		RequestToUser:   c.requestToUser,
+		WorkflowHistory: historyJSON,
+		Workflow:        dbWorkflow,
 	}
 	c.mu.RUnlock()
 	updatedWorkflowID, err := repo.SaveContext(dbContext)

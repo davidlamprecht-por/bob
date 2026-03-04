@@ -14,6 +14,7 @@ import (
 
 // TestADOComprehensive tests all ADO tools with real data
 func TestADOComprehensive(t *testing.T) {
+	t.Skip("ADO integration test disabled — creates real tickets, run manually only")
 	// Load .env file from project root
 	// Get the current working directory and find project root
 	cwd, _ := os.Getwd()

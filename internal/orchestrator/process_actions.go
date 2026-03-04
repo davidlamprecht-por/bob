@@ -118,6 +118,14 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 			logger.Debugf("🤖 ActionAI: Stored conversation ID with key=%v", keyPtr)
 		}
 
+		// Track the latest response ID on the main conversation for context branching
+		// (used by the intent analyzer via ai.BranchFromResponse)
+		if conversationKey == "" && response.ResponseID != "" {
+			respID := response.ResponseID
+			wf.SetLastResponseID(&respID)
+			logger.Debugf("🤖 ActionAI: Stored last response ID=%s", respID)
+		}
+
 		// For synchronous calls, create ActionWorkflowResult with response data
 		// The workflow will continue processing with the AI response
 		logger.Debug("🤖 ActionAI: Creating ActionWorkflowResult")

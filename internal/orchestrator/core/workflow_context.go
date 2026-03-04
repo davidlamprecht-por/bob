@@ -11,8 +11,9 @@ type WorkflowContext struct {
 	workflowName string
 	step         string
 
-	workflowData map[string]any
+	workflowData    map[string]any
 	aiConverstation *string // Main aiConverstation
+	lastResponseID  *string // ID of the most recent AI response in the main conversation thread
 
 	context ConversationContext
 }
@@ -82,6 +83,15 @@ func (wf *WorkflowContext) GetAIConversation(key *string) *string {
 	return c
 }
 
+// GetLastResponseID returns the OpenAI response ID from the most recent AI call
+// in the main conversation thread. Used to branch-read context without advancing
+// the conversation chain (see ai.BranchFromResponse).
+func (wf *WorkflowContext) GetLastResponseID() *string {
+	wf.context.mu.RLock()
+	defer wf.context.mu.RUnlock()
+	return wf.lastResponseID
+}
+
 // setters --------------------------------------------------------------------
 
 func (wf *WorkflowContext) SetID(id int) {
@@ -125,6 +135,13 @@ func (wf *WorkflowContext) ResetWorkflowData(){
 	wf.context.lastUpdated = time.Now()
 
 	wf.workflowData = make(map[string]any)
+}
+
+func (wf *WorkflowContext) SetLastResponseID(id *string) {
+	wf.context.mu.RLock()
+	defer wf.context.mu.RUnlock()
+	wf.context.lastUpdated = time.Now()
+	wf.lastResponseID = id
 }
 
 func (wf *WorkflowContext) SetAIConversation(key *string, conv *string) {

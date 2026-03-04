@@ -52,6 +52,8 @@ func TestBuildSchema_Simple(t *testing.T) {
 }
 
 func TestBuildSchema_Required(t *testing.T) {
+	// OpenAI Structured Outputs requires ALL fields to be listed in the required array.
+	// Non-required fields are distinguished by a "Leave empty" hint in their description.
 	builder := ai.NewSchema().
 		AddString("required_field", ai.Required()).
 		AddString("optional_field")
@@ -66,11 +68,19 @@ func TestBuildSchema_Required(t *testing.T) {
 		t.Fatal("required should be a string slice")
 	}
 
-	if len(required) != 1 {
-		t.Fatalf("expected 1 required field, got %d", len(required))
+	if len(required) != 2 {
+		t.Fatalf("expected 2 required fields (OpenAI Structured Outputs needs all fields listed), got %d", len(required))
 	}
-	if required[0] != "required_field" {
-		t.Errorf("expected 'required_field', got %q", required[0])
+
+	// Verify the optional field carries the "Leave empty" hint in its description
+	props := schema["properties"].(map[string]any)
+	optField, ok := props["optional_field"].(map[string]any)
+	if !ok {
+		t.Fatal("optional_field should be in properties")
+	}
+	desc, _ := optField["description"].(string)
+	if desc == "" {
+		t.Error("optional_field should have a description hinting it can be left empty")
 	}
 }
 

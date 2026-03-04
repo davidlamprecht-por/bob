@@ -22,6 +22,7 @@ type WorkflowContext struct {
 	WorkflowName       string
 	Step               string
 	MainConversationID *string
+	LastResponseID     *string
 	WorkflowData       map[string]any
 }
 
@@ -53,8 +54,8 @@ func (r *WorkflowRepository) saveWorkflowInTx(tx *sql.Tx, workflow *WorkflowCont
 	if workflow.ID == nil || *workflow.ID == 0 {
 		// INSERT new workflow_context
 		result, err := tx.Exec(
-			"INSERT INTO workflow_context (workflow_name, workflow_step, main_conversation_id) VALUES (?, ?, ?)",
-			workflow.WorkflowName, workflow.Step, toNullString(workflow.MainConversationID),
+			"INSERT INTO workflow_context (workflow_name, workflow_step, main_conversation_id, last_response_id) VALUES (?, ?, ?, ?)",
+			workflow.WorkflowName, workflow.Step, toNullString(workflow.MainConversationID), toNullString(workflow.LastResponseID),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("failed to insert workflow context: %w", err)
@@ -64,8 +65,8 @@ func (r *WorkflowRepository) saveWorkflowInTx(tx *sql.Tx, workflow *WorkflowCont
 	} else {
 		// UPDATE existing workflow_context
 		_, err := tx.Exec(
-			"UPDATE workflow_context SET workflow_name=?, workflow_step=?, main_conversation_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-			workflow.WorkflowName, workflow.Step, toNullString(workflow.MainConversationID), *workflow.ID,
+			"UPDATE workflow_context SET workflow_name=?, workflow_step=?, main_conversation_id=?, last_response_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+			workflow.WorkflowName, workflow.Step, toNullString(workflow.MainConversationID), toNullString(workflow.LastResponseID), *workflow.ID,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("failed to update workflow context: %w", err)
@@ -99,11 +100,11 @@ func (r *WorkflowRepository) LoadWorkflow(workflowID int) (workflow *WorkflowCon
 	workflow = &WorkflowContext{}
 
 	// Load workflow_context
-	var mainConvIDNull sql.NullString
+	var mainConvIDNull, lastResponseIDNull sql.NullString
 	err = r.db.QueryRow(
-		"SELECT workflow_name, workflow_step, main_conversation_id FROM workflow_context WHERE id=?",
+		"SELECT workflow_name, workflow_step, main_conversation_id, last_response_id FROM workflow_context WHERE id=?",
 		workflowID,
-	).Scan(&workflow.WorkflowName, &workflow.Step, &mainConvIDNull)
+	).Scan(&workflow.WorkflowName, &workflow.Step, &mainConvIDNull, &lastResponseIDNull)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load workflow context: %w", err)
@@ -115,6 +116,11 @@ func (r *WorkflowRepository) LoadWorkflow(workflowID int) (workflow *WorkflowCon
 	// Set main conversation ID if present
 	if mainConvIDNull.Valid {
 		workflow.MainConversationID = &mainConvIDNull.String
+	}
+
+	// Set last response ID if present
+	if lastResponseIDNull.Valid {
+		workflow.LastResponseID = &lastResponseIDNull.String
 	}
 
 	// Load workflow_context_data

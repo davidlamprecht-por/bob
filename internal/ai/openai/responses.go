@@ -49,9 +49,16 @@ func SendMessage(
 		return nil, err
 	}
 
+	// For response-ID chains (resp_...) the caller must use the new response ID as the
+	// next conversation pointer — the old ID is no longer the tip of the chain.
+	returnConvID := convID
+	if strings.HasPrefix(convID, "resp_") {
+		returnConvID = resp.ID
+	}
+
 	return ai.NewResponse(
 		data,
-		convID,
+		returnConvID,
 		resp.ID,
 		string(resp.Model),
 		string(resp.Status),
@@ -118,9 +125,6 @@ func sendMessage(
 	}
 
 	params := responses.ResponseNewParams{
-		Conversation: responses.ResponseNewParamsConversationUnion{
-			OfString: param.NewOpt(convID),
-		},
 		Model:       shared.ResponsesModel(config.Model),
 		Temperature: param.NewOpt(float64(config.Temperature)),
 		TopP:        param.NewOpt(float64(config.TopP)),
@@ -130,8 +134,18 @@ func sendMessage(
 		params.MaxOutputTokens = param.NewOpt(int64(config.MaxTokens))
 	}
 
-	if shouldIncludePersonality(convID, personality) {
-		params.Instructions = param.NewOpt(personality)
+	// Response IDs (resp_...) use the previous_response_id chain — the Conversation and
+	// PreviousResponseID fields are mutually exclusive in the API.
+	if strings.HasPrefix(convID, "resp_") {
+		params.PreviousResponseID = param.NewOpt(convID)
+		params.Instructions = param.NewOpt(personality) // no caching — ID changes every call
+	} else {
+		params.Conversation = responses.ResponseNewParamsConversationUnion{
+			OfString: param.NewOpt(convID),
+		}
+		if shouldIncludePersonality(convID, personality) {
+			params.Instructions = param.NewOpt(personality)
+		}
 	}
 
 	input := responses.ResponseNewParamsInputUnion{
@@ -151,6 +165,46 @@ func sendMessage(
 	}
 
 	return resp, nil
+}
+
+// sendBranchedMessage makes an AI call using previous_response_id so the model sees
+// full conversation context. Returns resp.ID as ConversationID — store it to continue
+// the branch, or discard it to abandon. The original thread is always unaffected.
+//
+// Use via ai.BranchFromResponse(responseID) — see thoughts/shared/patterns/ai-response-branching.md
+func sendBranchedMessage(
+	ctx context.Context,
+	previousResponseID string,
+	userPrompt string,
+	personality string,
+	schemaBuilder *ai.SchemaBuilder,
+) (*ai.Response, error) {
+	schema, err := buildSchemaWithCache(schemaBuilder)
+	if err != nil {
+		return nil, err
+	}
+	config := defaultConfig()
+	// previousResponseID starts with "resp_" so sendMessage automatically uses
+	// PreviousResponseID and sendWithRetry handles retries as normal.
+	resp, err := sendWithRetry(ctx, previousResponseID, userPrompt, personality, schema, config)
+	if err != nil {
+		return nil, err
+	}
+	data, err := parseResponseToMap(resp)
+	if err != nil {
+		return nil, err
+	}
+	// Return resp.ID as ConversationID — callers can store and continue from this branch,
+	// or simply discard it. SendMessage's returnConvID logic also handles this automatically
+	// when going through the normal path.
+	return ai.NewResponse(
+		data,
+		resp.ID,
+		resp.ID,
+		string(resp.Model),
+		string(resp.Status),
+		int(resp.Usage.TotalTokens),
+	), nil
 }
 
 func parseResponseToMap(resp *responses.Response) (map[string]any, error) {

@@ -18,9 +18,12 @@ func (p *provider) SendMessage(
 	schemaBuilder *ai.SchemaBuilder,
 	opts ...ai.Option,
 ) (*ai.Response, error) {
-	// Convert ai.Option to openai.Option
-	// For now, we assume options are compatible
-	// In the future, we might need a conversion mechanism
+	// Check for BranchOption — branch calls get full context but don't advance the chain
+	for _, opt := range opts {
+		if b, ok := opt.(ai.BranchOption); ok {
+			return sendBranchedMessage(ctx, b.ResponseID, userPrompt, personality, schemaBuilder)
+		}
+	}
 	return SendMessage(ctx, conversationID, userPrompt, personality, schemaBuilder)
 }
 

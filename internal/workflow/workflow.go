@@ -155,8 +155,16 @@ func handleDefaultSteps(w WorkflowDefinition, c *core.ConversationContext, a *co
 		return nil, false, nil
 
 	case StepUserAnsweringQuestion:
-		// Let workflow handle the user's answer
-		return nil, false, nil
+		// Treat as a side question by default — the user's reply goes through the main
+		// conversation thread so the AI has full context to respond naturally.
+		// Workflows that need to process a specific user answer (i.e. they called
+		// ActionUserWait themselves) should set OptionOverwriteHandleDefaultSteps and
+		// handle StepUserAnsweringQuestion directly in their WorkflowFn.
+		actions, err := handleSideQuestion(c, w, a)
+		if err != nil {
+			return nil, false, err
+		}
+		return actions, true, nil
 
 	case StepUserAsksQuestion:
 		// Handle side question with proper context preparation

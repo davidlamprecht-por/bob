@@ -12,8 +12,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// TestADOComprehensive tests all ADO tools with real data
+// TestADOComprehensive tests all ADO tools with real data.
+// Requires RUN_ADO_TESTS=1 to avoid hitting live ADO APIs in normal runs.
 func TestADOComprehensive(t *testing.T) {
+	if os.Getenv("RUN_ADO_TESTS") == "" {
+		t.Skip("skipping ADO integration tests; set RUN_ADO_TESTS=1 to run")
+	}
+
 	// Load .env file from project root
 	// Get the current working directory and find project root
 	cwd, _ := os.Getwd()

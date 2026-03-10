@@ -53,3 +53,21 @@ func (r *Response) Raw() map[string]any {
 type Option interface {
 	Apply(config any)
 }
+
+// BranchOption instructs the provider to make a read-only context branch off an
+// existing response rather than continuing a conversation. The provider sees the
+// full conversation history but the returned response ID should be discarded —
+// the original conversation chain is completely unaffected.
+type BranchOption struct {
+	ResponseID string
+}
+
+func (BranchOption) Apply(_ any) {} // handled via type assertion in providers
+
+// BranchFromResponse returns an Option that gives the AI full conversation context
+// by branching off an existing response, without advancing the conversation chain.
+// Use this for one-shot queries (e.g. routing/intent checks) where you need context
+// but must not pollute the workflow's conversation thread.
+func BranchFromResponse(responseID string) Option {
+	return BranchOption{ResponseID: responseID}
+}

@@ -91,7 +91,13 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 		if conversationKey != "" {
 			keyPtr = &conversationKey
 		}
-		conversationID := wf.GetAIConversation(keyPtr)
+
+		var conversationID *string
+		if keyPtr == nil {
+			conversationID = ctx.GetMainConversation()
+		} else {
+			conversationID = wf.GetAIConversation(keyPtr)
+		}
 		logger.Debugf("🤖 ActionAI: conversationID=%v", conversationID)
 
 		// Call AI layer
@@ -108,14 +114,20 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 
 		// Store the updated conversation ID
 		if response.ConversationID != "" {
-			// If conversationKey is empty string, pass nil (main conversation)
-			var keyPtr *string
-			if conversationKey != "" {
-				keyPtr = &conversationKey
-			}
 			convID := response.ConversationID
-			wf.SetAIConversation(keyPtr, &convID)
-			logger.Debugf("🤖 ActionAI: Stored conversation ID with key=%v", keyPtr)
+			if keyPtr == nil {
+				// Main conversation — write to thread-level context
+				ctx.SetMainConversation(&convID)
+				if response.ResponseID != "" {
+					respID := response.ResponseID
+					ctx.SetLastResponseID(&respID)
+				}
+				logger.Debugf("🤖 ActionAI: Stored main conversation ID on thread context")
+			} else {
+				// Isolated sub-conversation — write to workflow data
+				wf.SetAIConversation(keyPtr, &convID)
+				logger.Debugf("🤖 ActionAI: Stored sub-conversation ID with key=%v", keyPtr)
+			}
 		}
 
 		// For synchronous calls, create ActionWorkflowResult with response data

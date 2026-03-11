@@ -22,11 +22,13 @@ func NewContextRepository(db *sql.DB) *ContextRepository {
 
 // Context mirrors orchestrator.Context to avoid import cycles
 type Context struct {
-	UserID        int // Internal DB ID
-	ThreadID      int // Internal DB ID
-	Workflow      *WorkflowContext
-	ContextStatus string // Parsed by orchestrator
-	RequestToUser string
+	UserID             int // Internal DB ID
+	ThreadID           int // Internal DB ID
+	Workflow           *WorkflowContext
+	ContextStatus      string // Parsed by orchestrator
+	RequestToUser      string
+	MainConversationID *string
+	LastResponseID     *string
 }
 
 // SaveContext persists ConversationContext to database
@@ -55,9 +57,10 @@ func (r *ContextRepository) SaveContext(context *Context) (*int, error) {
 			// INSERT new conversation_context
 			_, err = tx.Exec(`
 				INSERT INTO conversation_context
-				(user_id, thread_id, workflow_context_id, context_status, request_to_user, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				(user_id, thread_id, workflow_context_id, context_status, request_to_user, main_conversation_id, last_response_id, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				context.UserID, context.ThreadID, toNullInt64(updatedWorkflowID), context.ContextStatus, nullString(context.RequestToUser),
+				toNullString(context.MainConversationID), toNullString(context.LastResponseID),
 				time.Now(), time.Now(),
 			)
 			if err != nil {
@@ -69,9 +72,11 @@ func (r *ContextRepository) SaveContext(context *Context) (*int, error) {
 			// UPDATE existing conversation_context
 			_, err = tx.Exec(`
 				UPDATE conversation_context
-				SET workflow_context_id=?, context_status=?, request_to_user=?, updated_at=?
+				SET workflow_context_id=?, context_status=?, request_to_user=?, main_conversation_id=?, last_response_id=?, updated_at=?
 				WHERE id=?`,
-				toNullInt64(updatedWorkflowID), context.ContextStatus, nullString(context.RequestToUser), time.Now(), existingID,
+				toNullInt64(updatedWorkflowID), context.ContextStatus, nullString(context.RequestToUser),
+				toNullString(context.MainConversationID), toNullString(context.LastResponseID),
+				time.Now(), existingID,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to update conversation context: %w", err)
@@ -96,14 +101,16 @@ func (r *ContextRepository) LoadContext(
 	// Load conversation_context
 	var workflowIDNull sql.NullInt64
 	var requestToUserNull sql.NullString
+	var mainConvIDNull sql.NullString
+	var lastRespIDNull sql.NullString
 	var contextStatus string
 
 	err = r.db.QueryRow(`
-		SELECT workflow_context_id, context_status, request_to_user
+		SELECT workflow_context_id, context_status, request_to_user, main_conversation_id, last_response_id
 		FROM conversation_context
 		WHERE user_id=? AND thread_id=?`,
 		userID, threadID,
-	).Scan(&workflowIDNull, &contextStatus, &requestToUserNull)
+	).Scan(&workflowIDNull, &contextStatus, &requestToUserNull, &mainConvIDNull, &lastRespIDNull)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -113,13 +120,19 @@ func (r *ContextRepository) LoadContext(
 	}
 
 	context = &Context{
-		UserID: userID,
-		ThreadID: threadID,
+		UserID:        userID,
+		ThreadID:      threadID,
 		ContextStatus: contextStatus,
 	}
 
 	if requestToUserNull.Valid {
 		context.RequestToUser = requestToUserNull.String
+	}
+	if mainConvIDNull.Valid {
+		context.MainConversationID = &mainConvIDNull.String
+	}
+	if lastRespIDNull.Valid {
+		context.LastResponseID = &lastRespIDNull.String
 	}
 
 	// Load workflow if exists

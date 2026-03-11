@@ -123,12 +123,18 @@ func callIntentAI(message *core.Message, ctx *core.ConversationContext) (*aiInte
 	schema := buildIntentSchema()
 	prompt := buildIntentPrompt(message, ctx)
 
+	var opts []ai.Option
+	if respID := ctx.GetLastResponseID(); respID != nil {
+		opts = append(opts, ai.BranchFromResponse(*respID))
+	}
+
 	response, err := ai.SendMessage(
 		context.Background(),
 		nil,
 		prompt,
 		"You are an intent analyzer for Bob, a workflow-based assistant. Analyze user messages to determine the appropriate workflow and step.",
 		schema,
+		opts...,
 	)
 	if err != nil {
 		return nil, err

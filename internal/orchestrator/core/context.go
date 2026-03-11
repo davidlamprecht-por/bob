@@ -20,6 +20,10 @@ type ConversationContext struct {
 	currentStatus    ContextStatus
 	lastUserMessages []*Message
 
+	// Thread-level AI conversation (persists across workflow switches)
+	mainConversationID *string // Persistent OpenAI conversation ID for this thread
+	lastResponseID     *string // Most recent response ID in the main conversation (for branching)
+
 	// State preservation for blocking/resuming
 	remainingActions []*Action
 	requestToUser    string
@@ -101,6 +105,32 @@ func (c *ConversationContext) SetRequestToUser(request string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requestToUser = request
+	c.lastUpdated = time.Now()
+}
+
+func (c *ConversationContext) GetMainConversation() *string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.mainConversationID
+}
+
+func (c *ConversationContext) SetMainConversation(id *string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mainConversationID = id
+	c.lastUpdated = time.Now()
+}
+
+func (c *ConversationContext) GetLastResponseID() *string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastResponseID
+}
+
+func (c *ConversationContext) SetLastResponseID(id *string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastResponseID = id
 	c.lastUpdated = time.Now()
 }
 
@@ -202,11 +232,10 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 	var wf *WorkflowContext
 	if dbContext.Workflow != nil {
 		wf = &WorkflowContext{
-			id:              *dbContext.Workflow.ID,
-			workflowName:    dbContext.Workflow.WorkflowName,
-			step:            dbContext.Workflow.Step,
-			aiConverstation: dbContext.Workflow.MainConversationID,
-			workflowData:    dbContext.Workflow.WorkflowData,
+			id:           *dbContext.Workflow.ID,
+			workflowName: dbContext.Workflow.WorkflowName,
+			step:         dbContext.Workflow.Step,
+			workflowData: dbContext.Workflow.WorkflowData,
 		}
 	}
 
@@ -215,13 +244,15 @@ func loadContextFromDB(userID, threadID int) *ConversationContext {
 		userID:   userID,
 		threadID: threadID,
 
-		currentWorkflow:  wf,
-		currentStatus:    ContextStatus(dbContext.ContextStatus),
-		lastUserMessages: []*Message{}, // Not persisted, starts empty
-		remainingActions: nil,          // Action queue not persisted
-		requestToUser:    dbContext.RequestToUser,
-		lastUpdated:      time.Now(), // Set to now on load
-		createdAt:        time.Now(), // Not persisted, approximate
+		currentWorkflow:    wf,
+		currentStatus:      ContextStatus(dbContext.ContextStatus),
+		lastUserMessages:   []*Message{}, // Not persisted, starts empty
+		remainingActions:   nil,          // Action queue not persisted
+		requestToUser:      dbContext.RequestToUser,
+		mainConversationID: dbContext.MainConversationID,
+		lastResponseID:     dbContext.LastResponseID,
+		lastUpdated:        time.Now(), // Set to now on load
+		createdAt:          time.Now(), // Not persisted, approximate
 	}
 
 	return ctx
@@ -239,21 +270,22 @@ func (c *ConversationContext) UpdateDB() error {
 	var dbWorkflow *database.WorkflowContext
 	if currentWorkflow != nil {
 		dbWorkflow = &database.WorkflowContext{
-			ID:                 &currentWorkflow.id,
-			WorkflowName:       currentWorkflow.workflowName,
-			Step:               currentWorkflow.step,
-			MainConversationID: currentWorkflow.aiConverstation,
-			WorkflowData:       currentWorkflow.workflowData,
+			ID:           &currentWorkflow.id,
+			WorkflowName: currentWorkflow.workflowName,
+			Step:         currentWorkflow.step,
+			WorkflowData: currentWorkflow.workflowData,
 		}
 	}
 
 	// Save to DB (using internal IDs)
 	var dbContext = &database.Context{
-		UserID:        c.userID,
-		ThreadID:      c.threadID,
-		ContextStatus: string(c.currentStatus),
-		RequestToUser: c.requestToUser,
-		Workflow:      dbWorkflow,
+		UserID:             c.userID,
+		ThreadID:           c.threadID,
+		ContextStatus:      string(c.currentStatus),
+		RequestToUser:      c.requestToUser,
+		Workflow:           dbWorkflow,
+		MainConversationID: c.mainConversationID,
+		LastResponseID:     c.lastResponseID,
 	}
 	c.mu.RUnlock()
 	updatedWorkflowID, err := repo.SaveContext(dbContext)

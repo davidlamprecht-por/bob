@@ -125,9 +125,6 @@ func handleDefaultSteps(w WorkflowDefinition, c *core.ConversationContext, a *co
 			return nil, false, err
 		}
 
-		// Reset AI conversation for this workflow (will be newly generated at next requets)
-		c.GetCurrentWorkflow().SetAIConversation(nil, nil)
-
 		// Let workflow continue with initialization
 		return nil, false, nil
 

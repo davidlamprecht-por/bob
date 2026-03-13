@@ -9,6 +9,28 @@ Mark each as `[x]` (implement), `[-]` (reject/skip), or leave blank while decidi
 
 ## Session Updates
 
+### 2026-03-13 (GO-007: sub-workflow dispatch + async hardening)
+
+All infrastructure checklist items are now implemented on master. See commit `641bb43`.
+
+**What landed:**
+- `InputWorkflowName` / `InputSubWorkerID` constants on `core/action.go`
+- `RunWorkflow` dispatches to named workflow from action input (sub-workflow dispatch)
+- `WorkflowDefinition.Internal` flag — hidden from `AvailableWorkflows()` and intent analyzer
+- `workflows` map moved to `init()` (avoids initialization cycles)
+- `runAsyncSubtask` mini action loop in goroutines — flattens nested `ActionAsync` sequentially
+- `ActionTool` swallows errors instead of killing async sub-workers silently
+- `ActionAI` / `ActionTool` copy all routing inputs (`InputStep`, `InputWorkflowName`, `InputSubWorkerID`) to result actions
+- Filter stale `ActionCompleteAsync` from queue before `WaitForUser` pause
+- `pendingAsyncCount` exit check changed to `<= 0` (handles negative counts after pause)
+- `StepUserAnsweringQuestion` default now routes to `handleSideQuestion`; workflows needing raw user answer must set `OptionOverwriteHandleDefaultSteps`
+- Intent analyzer falls back to `GetMainConversation()` when `lastResponseID` is nil
+- Generic pointer serialization (`ptr_<innerType>`) in `workflow_repository` via reflect
+
+**Next:** Implement `QueryTicket` and `QueryTicketSearcher` workflows.
+
+---
+
 ### 2026-03-13 (GO-006 decision — intent routing ambiguity)
 
 Decided **not** to implement clarifying questions in the intent analyzer on master.
@@ -93,48 +115,48 @@ Persisted to DB (new nullable column `pending_intent_response_id` on `conversati
 
 ### Infrastructure / Core
 
-- [ ] **Workflows map moved to `init()`**
+- [x] **Workflows map moved to `init()`**
   Move `var workflows = map[...]{}` to a `func init()` block. Needed to avoid initialization
   cycles when workflow functions reference the map at call time (e.g. `handleSideQuestion(workflows[WorkflowQueryTicket])`).
 
-- [ ] **`WorkflowDefinition.Internal` flag**
+- [x] **`WorkflowDefinition.Internal` flag**
   A bool on `WorkflowDefinition` that hides a workflow from `AvailableWorkflows()` and the
   intent analyzer. Required for any sub-workflow that should never be user-triggered.
 
-- [ ] **Sub-workflow dispatch via `InputWorkflowName` / `InputSubWorkerID`**
+- [x] **Sub-workflow dispatch via `InputWorkflowName` / `InputSubWorkerID`**
   `ActionWorkflow` can carry `InputWorkflowName` to override `GetCurrentWorkflow()` in
   `RunWorkflow`. Combined with `InputSubWorkerID` (a string), this lets a parent spawn named
   parallel workers running a separate `WorkflowDefinition`.
 
-- [ ] **Copy all routing inputs through `ActionWorkflowResult`**
+- [x] **Copy all routing inputs through `ActionWorkflowResult`**
   In `ActionAI` and `ActionTool`, copy `InputStep`, `InputWorkflowName`, and `InputSubWorkerID`
   from the source action onto the result action. Previously only `InputStep` was copied, which
   silently dropped sub-worker identity through the chain.
 
-- [ ] **`runAsyncSubtask` goroutine mini-loop**
+- [x] **`runAsyncSubtask` goroutine mini-loop**
   Goroutines spawned by `ActionAsync` run a local action loop instead of processing one action
   and returning. This lets sub-workers execute multi-step sequences (tool → AI → result)
   entirely in parallel. Actions they cannot handle (user messages, waits) are forwarded to the
   main loop via the channel. Nested `ActionAsync` inside a goroutine is flattened sequentially
   rather than spawning sub-goroutines.
 
-- [ ] **`ActionTool` error recovery in async context**
+- [x] **`ActionTool` error recovery in async context**
   On tool failure, return an empty result map (`{count:0, items:[], error:"..."}`) instead of
   propagating the error. A returned error from a goroutine silently kills it, leaving
   `pendingAsyncCount` undecrementable and the parent workflow waiting forever.
 
-- [ ] **Filter stale `ActionCompleteAsync` on `WaitForUser` pause**
+- [x] **Filter stale `ActionCompleteAsync` on `WaitForUser` pause**
   When pausing the action loop for user input, strip any `ActionCompleteAsync` from the
   remaining queue before storing it. Those decrement actions become invalid after the pause
   because `pendingAsyncCount` is not explicitly reset on resume.
 
-- [ ] **`OptionOverwriteHandleDefaultSteps` controls `StepUserAnsweringQuestion` handling**
+- [x] **`OptionOverwriteHandleDefaultSteps` controls `StepUserAnsweringQuestion` handling**
   The new default behavior for `StepUserAnsweringQuestion` calls `handleSideQuestion` (answer
   and continue) instead of passing through to the workflow. Any workflow that calls
   `ActionUserWait` and needs the user's answer routed to its own handler must set
   `OptionOverwriteHandleDefaultSteps: true`.
 
-- [ ] **Generic pointer serialization in `workflow_repository`**
+- [x] **Generic pointer serialization in `workflow_repository`**
   `serializeValue` / `deserializeValue` handle pointer types via reflection using a
   `ptr_<innerType>` data type prefix. Motivated by storing `*string` values in workflow data.
 

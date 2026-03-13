@@ -148,14 +148,21 @@ func StartHandlingActions(actionQueue []*core.Action, context *core.Conversation
 		// Check if we should stop (waiting for user) - MUST check this FIRST
 		if context.GetCurrentStatus() == core.StatusWaitForUser {
 			logger.Debug("⏸️  Waiting for user, pausing action loop")
-			// Store remaining actions for resumption
-			context.SetRemainingActions(actionQueue)
+			// Filter out stale ActionCompleteAsync — these decrement pendingAsyncCount and
+			// become invalid after a WaitForUser pause (pendingAsyncCount resets to 0 on resume).
+			filtered := make([]*core.Action, 0, len(actionQueue))
+			for _, a := range actionQueue {
+				if a.ActionType != core.ActionCompleteAsync {
+					filtered = append(filtered, a)
+				}
+			}
+			context.SetRemainingActions(filtered)
 			break
 		}
 
 		// Check if we're truly done (atomic read)
 		currentPending := atomic.LoadInt32(&pendingAsyncCount)
-		if len(actionQueue) == 0 && currentPending == 0 {
+		if len(actionQueue) == 0 && currentPending <= 0 {
 			logger.Debug("🏁 Action queue empty and no pending async operations")
 			break
 		}

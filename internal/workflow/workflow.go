@@ -16,23 +16,9 @@ const (
 	WorkflowTestAI       WorkflowName = "testAI"
 )
 
-var workflows = map[WorkflowName]WorkflowDefinition{
-	WorkflowCreateTicket: {
-		Description: "Create, make, open, or submit a new Azure DevOps (ADO) work item/ticket. Use when user wants to create new tickets. Keywords: create, make, new, open, submit, add ticket/work item/task/bug/story.",
-		WorkflowFn:  CreateTicket,
-		AvailableSteps: []string{},
-	},
-	WorkflowQueryTicket: {
-		Description: "Query, search, find, lookup, retrieve, view, or get an Azure DevOps (ADO) work item/ticket by ID or description. Use when user wants to fetch/check/see existing tickets. Keywords: query, search, find, get, lookup, retrieve, show, view, check, fetch, pull ticket/work item.",
-		WorkflowFn:  QueryTicket,
-		AvailableSteps: []string{},
-	},
-	WorkflowTestAI: {
-		Description: "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
-		WorkflowFn:  TestAI,
-		AvailableSteps: []string{"handle_async_results", "call_tool"},
-	},
-}
+// workflows is populated in init() to avoid initialization cycles caused by
+// workflow functions (e.g. QueryTicket) that reference this map at call time.
+var workflows map[WorkflowName]WorkflowDefinition
 
 // -----------------------------------------------------------------
 
@@ -56,6 +42,7 @@ const (
 type WorkflowDefinition struct {
 	Description string
 	AvailableSteps []string
+	Internal bool // Internal workflows are not user-triggerable and hidden from the intent analyzer
 
 	WorkflowFn func(context *core.ConversationContext, sourceAction *core.Action) ([]*core.Action, error)
 	Options map[Option]any
@@ -64,11 +51,20 @@ type WorkflowDefinition struct {
 
 // RunWorkflow will run any workflow
 func RunWorkflow(context *core.ConversationContext, sourceAction *core.Action) ([]*core.Action, error) {
-	cw := context.GetCurrentWorkflow()
-	if cw == nil {
-		return nil, fmt.Errorf("no current workflow set")
+	// Check if the action specifies a target workflow (sub-workflow dispatch)
+	var wf WorkflowName
+	if sourceAction.Input != nil {
+		if name, ok := sourceAction.Input[core.InputWorkflowName].(WorkflowName); ok && name != "" {
+			wf = name
+		}
 	}
-	wf := WorkflowName(cw.GetWorkflowName())
+	if wf == "" {
+		cw := context.GetCurrentWorkflow()
+		if cw == nil {
+			return nil, fmt.Errorf("no current workflow set")
+		}
+		wf = WorkflowName(cw.GetWorkflowName())
+	}
 	workflow, ok := workflows[wf]
 	if !ok {
 		return nil, fmt.Errorf("unknown workflow: %q", wf)
@@ -97,6 +93,23 @@ func RunWorkflow(context *core.ConversationContext, sourceAction *core.Action) (
 }
 
 func init() {
+	workflows = map[WorkflowName]WorkflowDefinition{
+		WorkflowCreateTicket: {
+			Description:    "Create, make, open, or submit a new Azure DevOps (ADO) work item/ticket. Use when user wants to create new tickets. Keywords: create, make, new, open, submit, add ticket/work item/task/bug/story.",
+			WorkflowFn:     CreateTicket,
+			AvailableSteps: []string{},
+		},
+		WorkflowQueryTicket: {
+			Description:    "Query, search, find, lookup, retrieve, view, or get an Azure DevOps (ADO) work item/ticket by ID or description. Use when user wants to fetch/check/see existing tickets. Keywords: query, search, find, get, lookup, retrieve, show, view, check, fetch, pull ticket/work item.",
+			WorkflowFn:     QueryTicket,
+			AvailableSteps: []string{},
+		},
+		WorkflowTestAI: {
+			Description:    "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
+			WorkflowFn:     TestAI,
+			AvailableSteps: []string{"handle_async_results", "call_tool"},
+		},
+	}
 	for name, def := range workflows {
 		if def.WorkflowFn == nil {
 			panic(fmt.Sprintf("workflow %q has nil WorkflowFn", name))
@@ -129,8 +142,16 @@ func handleDefaultSteps(w WorkflowDefinition, c *core.ConversationContext, a *co
 		return nil, false, nil
 
 	case StepUserAnsweringQuestion:
-		// Let workflow handle the user's answer
-		return nil, false, nil
+		// Treat as a side question by default — the user's reply goes through the main
+		// conversation thread so the AI has full context to respond naturally.
+		// Workflows that need to process a specific user answer (i.e. they called
+		// ActionUserWait themselves) should set OptionOverwriteHandleDefaultSteps and
+		// handle StepUserAnsweringQuestion directly in their WorkflowFn.
+		actions, err := handleSideQuestion(c, w, a)
+		if err != nil {
+			return nil, false, err
+		}
+		return actions, true, nil
 
 	case StepUserAsksQuestion:
 		// Handle side question with proper context preparation
@@ -230,6 +251,9 @@ type WorkflowInfo struct {
 func AvailableWorkflows() []WorkflowInfo {
 	out := make([]WorkflowInfo, 0, len(workflows))
 	for name, def := range workflows {
+		if def.Internal {
+			continue
+		}
 		out = append(out, WorkflowInfo{
 			Name: name,
 			Description: def.Description,

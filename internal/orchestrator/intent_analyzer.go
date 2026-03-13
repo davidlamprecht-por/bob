@@ -109,9 +109,16 @@ func callIntentAI(message *core.Message, ctx *core.ConversationContext) (*aiInte
 	schema := buildIntentSchema()
 	prompt := buildIntentPrompt(message, ctx)
 
+	// Branch off the last response ID for a clean read that does not modify the main chain.
+	// Fall back to main conversation ID when last_response_id is unavailable — it serves as
+	// the branch point for the conversation history.
 	var opts []ai.Option
-	if respID := ctx.GetLastResponseID(); respID != nil {
-		opts = append(opts, ai.BranchFromResponse(*respID))
+	branchID := ctx.GetLastResponseID()
+	if branchID == nil {
+		branchID = ctx.GetMainConversation()
+	}
+	if branchID != nil {
+		opts = append(opts, ai.BranchFromResponse(*branchID))
 	}
 
 	response, err := ai.SendMessage(

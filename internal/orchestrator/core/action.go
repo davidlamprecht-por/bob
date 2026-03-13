@@ -42,6 +42,8 @@ const (
 	InputToolName        = "tool_name"        // ToolName to execute
 	InputToolArgs        = "tool_args"        // Tool arguments map[string]any
 	InputToolResult      = "tool_result"      // Tool result map[string]any
+	InputWorkflowName    = "workflow_name"    // Target workflow for sub-workflow dispatch
+	InputSubWorkerID     = "sub_worker_id"   // String ID for sub-workflow instance
 )
 
 func NewAction(actionType ActionType) *Action{

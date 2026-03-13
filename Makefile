@@ -1,4 +1,4 @@
-.PHONY: help migrate migrate-status migrate-build test build run clean
+.PHONY: help migrate migrate-fresh migrate-status migrate-build test build run clean
 
 # Default target
 help:
@@ -7,6 +7,7 @@ help:
 	@echo ""
 	@echo "Database Migrations:"
 	@echo "  make migrate         - Run all pending database migrations"
+	@echo "  make migrate-fresh   - ⚠️  Drop ALL tables and re-run all migrations from scratch"
 	@echo "  make migrate-status  - Show migration status"
 	@echo "  make migrate-build   - Build the migrate binary"
 	@echo ""
@@ -21,6 +22,26 @@ help:
 migrate:
 	@echo "Running database migrations..."
 	@go run cmd/migrate/main.go run
+
+migrate-fresh:
+	@echo ""
+	@echo "⚠️  WARNING: migrate-fresh will DROP ALL TABLES and re-run every migration from scratch."
+	@echo "   All data will be permanently lost. This is a development-only operation."
+	@echo ""
+	@read -p "Type 'yes' to continue: " confirm; \
+	if [ "$$confirm" = "yes" ]; then \
+		echo "Dropping all tables..."; \
+		mysql -h $(shell grep DB_HOST .env | cut -d '=' -f2) \
+		      -P $(shell grep DB_PORT .env | cut -d '=' -f2) \
+		      -u $(shell grep DB_USER .env | cut -d '=' -f2) \
+		      -p$(shell grep DB_PASSWORD .env | cut -d '=' -f2) \
+		      $(shell grep DB_NAME .env | cut -d '=' -f2) < scripts/reset_database.sql; \
+		echo "✓ All tables dropped"; \
+		echo "Running migrations..."; \
+		go run cmd/migrate/main.go run; \
+	else \
+		echo "Cancelled."; \
+	fi
 
 migrate-status:
 	@go run cmd/migrate/main.go status

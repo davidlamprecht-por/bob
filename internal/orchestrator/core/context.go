@@ -117,6 +117,9 @@ func (c *ConversationContext) GetMainConversation() *string {
 func (c *ConversationContext) SetMainConversation(id *string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.mainConversationID != nil {
+		return // locked — conversation ID is immutable once established for a thread
+	}
 	c.mainConversationID = id
 	c.lastUpdated = time.Now()
 }

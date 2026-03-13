@@ -168,8 +168,9 @@ func sendMessage(
 }
 
 // sendBranchedMessage makes an AI call using previous_response_id so the model sees
-// full conversation context. Returns resp.ID as ConversationID — store it to continue
-// the branch, or discard it to abandon. The original thread is always unaffected.
+// full conversation context. Returns resp.ID as the branch tip ConversationID — store
+// it to continue the branch across multiple turns, or discard it for one-shot queries.
+// The original thread is always unaffected.
 //
 // Use via ai.BranchFromResponse(responseID).
 func sendBranchedMessage(

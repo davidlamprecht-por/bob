@@ -1,10 +1,9 @@
-package tests
+package tool
 
 import (
 	"bob/internal/config"
 	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
-	"bob/internal/tool"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +21,7 @@ func TestADOComprehensive(t *testing.T) {
 	// Load .env file from project root
 	// Get the current working directory and find project root
 	cwd, _ := os.Getwd()
-	projectRoot := filepath.Join(cwd, "..")
+	projectRoot := filepath.Join(cwd, "../..")
 	envPath := filepath.Join(projectRoot, ".env")
 	godotenv.Load(envPath)
 
@@ -38,7 +37,7 @@ func TestADOComprehensive(t *testing.T) {
 	discoveredValues := make(map[string]any)
 
 	t.Run("00_GetMetadata_Tags", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOGetMetadata, map[string]any{"type": "tags"})
+		result, err := RunTool(ctx, ToolADOGetMetadata, map[string]any{"type": "tags"})
 		if err != nil {
 			t.Fatalf("Failed to get tags: %v", err)
 		}
@@ -55,7 +54,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("01_GetMetadata_AreaPaths", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOGetMetadata, map[string]any{"type": "area_paths"})
+		result, err := RunTool(ctx, ToolADOGetMetadata, map[string]any{"type": "area_paths"})
 		if err != nil {
 			t.Fatalf("Failed to get area paths: %v", err)
 		}
@@ -72,7 +71,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("02_GetMetadata_IterationPaths", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOGetMetadata, map[string]any{"type": "iteration_paths"})
+		result, err := RunTool(ctx, ToolADOGetMetadata, map[string]any{"type": "iteration_paths"})
 		if err != nil {
 			t.Fatalf("Failed to get iteration paths: %v", err)
 		}
@@ -89,7 +88,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("03_GetMetadata_States", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOGetMetadata, map[string]any{"type": "states"})
+		result, err := RunTool(ctx, ToolADOGetMetadata, map[string]any{"type": "states"})
 		if err != nil {
 			t.Fatalf("Failed to get states: %v", err)
 		}
@@ -104,7 +103,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("04_GetMetadata_WorkItemTypes", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOGetMetadata, map[string]any{"type": "work_item_types"})
+		result, err := RunTool(ctx, ToolADOGetMetadata, map[string]any{"type": "work_item_types"})
 		if err != nil {
 			t.Fatalf("Failed to get work item types: %v", err)
 		}
@@ -116,7 +115,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("05_GetMetadata_TeamMembers", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOGetMetadata, map[string]any{"type": "team_members"})
+		result, err := RunTool(ctx, ToolADOGetMetadata, map[string]any{"type": "team_members"})
 		if err != nil {
 			t.Fatalf("Failed to get team members: %v", err)
 		}
@@ -133,7 +132,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("06_GetMetadata_SeverityValues", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOGetMetadata, map[string]any{"type": "severity_values"})
+		result, err := RunTool(ctx, ToolADOGetMetadata, map[string]any{"type": "severity_values"})
 		if err != nil {
 			t.Fatalf("Failed to get severity values: %v", err)
 		}
@@ -164,7 +163,7 @@ func TestADOComprehensive(t *testing.T) {
 			"iteration_path":      "Enterprise",
 		}
 
-		result, err := tool.RunTool(ctx, tool.ToolADOCreateTicket, args)
+		result, err := RunTool(ctx, ToolADOCreateTicket, args)
 		if err != nil {
 			t.Fatalf("Failed to create user story with all fields: %v", err)
 		}
@@ -192,7 +191,7 @@ func TestADOComprehensive(t *testing.T) {
 			"iteration_path":      "Enterprise",
 		}
 
-		result, err := tool.RunTool(ctx, tool.ToolADOCreateTicket, args)
+		result, err := RunTool(ctx, ToolADOCreateTicket, args)
 		if err != nil {
 			t.Fatalf("Failed to create technical debt with all fields: %v", err)
 		}
@@ -231,7 +230,7 @@ func TestADOComprehensive(t *testing.T) {
 			}
 		}
 
-		result, err := tool.RunTool(ctx, tool.ToolADOCreateTicket, args)
+		result, err := RunTool(ctx, ToolADOCreateTicket, args)
 		if err != nil {
 			t.Fatalf("Failed to create defect with all fields: %v", err)
 		}
@@ -249,7 +248,7 @@ func TestADOComprehensive(t *testing.T) {
 			t.Skip("User story not created, skipping")
 		}
 
-		searchResult, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{"id": createdIDs["user_story_all"]})
+		searchResult, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{"id": createdIDs["user_story_all"]})
 		if err != nil {
 			t.Fatalf("Failed to search user story: %v", err)
 		}
@@ -321,7 +320,7 @@ func TestADOComprehensive(t *testing.T) {
 			t.Skip("Technical debt not created, skipping")
 		}
 
-		searchResult, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{"id": createdIDs["tech_debt_all"]})
+		searchResult, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{"id": createdIDs["tech_debt_all"]})
 		if err != nil {
 			t.Fatalf("Failed to search technical debt: %v", err)
 		}
@@ -377,7 +376,7 @@ func TestADOComprehensive(t *testing.T) {
 			t.Skip("Defect with all fields not created, skipping")
 		}
 
-		searchResult, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{"id": createdIDs["defect_all"]})
+		searchResult, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{"id": createdIDs["defect_all"]})
 		if err != nil {
 			t.Fatalf("Failed to search defect: %v", err)
 		}
@@ -481,7 +480,7 @@ func TestADOComprehensive(t *testing.T) {
 			t.Skip("User story not created, skipping")
 		}
 
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"id": createdIDs["user_story_all"],
 		})
 		if err != nil {
@@ -499,7 +498,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("31_SearchTickets_ByTitle", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"title":       "Bob Test",
 			"max_results": 10,
 		})
@@ -524,7 +523,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("32_SearchTickets_ByTag", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"tags":        []any{"Bob-Test"},
 			"max_results": 10,
 		})
@@ -545,7 +544,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("33_SearchTickets_ByType_UserStory", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"work_item_type": "Story",
 			"tags":           []any{"Bob-Test"},
 			"max_results":    5,
@@ -562,7 +561,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("34_SearchTickets_ByType_Defect", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"work_item_type": "Defect",
 			"tags":           []any{"Bob-Test"},
 			"max_results":    5,
@@ -579,7 +578,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("35_SearchTickets_ByState", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"state":       "New",
 			"tags":        []any{"Bob-Test"},
 			"max_results": 10,
@@ -596,7 +595,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("36_SearchTickets_MultipleFilters", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"title":          "Automated Test",
 			"work_item_type": "Story",
 			"state":          "New",
@@ -615,7 +614,7 @@ func TestADOComprehensive(t *testing.T) {
 	})
 
 	t.Run("37_SearchTickets_NoResults", func(t *testing.T) {
-		result, err := tool.RunTool(ctx, tool.ToolADOSearchTickets, map[string]any{
+		result, err := RunTool(ctx, ToolADOSearchTickets, map[string]any{
 			"title": "ThisShouldNeverExistInAnyWorkItem12345XYZ",
 		})
 		if err != nil {

@@ -7,6 +7,67 @@ Mark each as `[x]` (implement), `[-]` (reject/skip), or leave blank while decidi
 
 ---
 
+## Session Updates
+
+### 2026-03-10 (GO-005 + small hardening)
+
+**GO-005** — In `ActionAI` (`process_actions.go`), when starting a fresh sub-conversation
+(`keyPtr != nil && conversationID == nil`), seed it with `ai.BranchFromResponse(*respID)` if
+`lastResponseID` is available. Single-line functional change; storage unchanged.
+
+**`SetMainConversation` guard** — Added nil-check so the `conv_*` ID can't be overwritten
+once set. `lastResponseID` remains mutable as it's the branch seed, not the stable ID.
+
+**Docstring fixes** — `BranchFromResponse` and `sendBranchedMessage` comments updated to
+reflect that branches can be continued across multiple turns, not just used for one-shot queries.
+
+### Redesign: Intent Analyzer Clarifying Questions (2026-03-10)
+
+**The problem with the old design:**
+The intent analyzer branches off `lastResponseID`, gets a response, then discards the branch tip.
+If it asks a clarifying question, the user answers, and the next intent call branches off
+`lastResponseID` again — a completely fresh branch. The AI has no memory of what it asked.
+
+**The new design (leverages persistent conversation):**
+
+The intent analyzer owns a persistent branch. When it asks a clarifying question it stores the
+branch tip on the context. The next call continues from that tip — the AI already knows the full
+thread history AND what it just asked. No reconstructed context, no workflow history needed.
+
+**New field on `ConversationContext`:**
+```go
+pendingIntentResponseID *string  // branch tip stored while waiting for clarifying answer
+```
+Persisted to DB (new nullable column `pending_intent_response_id` on `conversation_context`).
+
+**Flow — normal routing (no clarification needed):**
+1. `callIntentAI()` branches off `lastResponseID` (as today) → routes → **discards** branch tip ✓
+
+**Flow — clarifying question:**
+1. `callIntentAI()` branches off `lastResponseID` → AI returns `clarifying_question` non-empty
+2. Store returned `response.ResponseID` → `ctx.SetPendingIntentResponseID(&respID)`
+3. Send question to user via `ActionUserWait` (blocking, sets `StatusWaitForUser`)
+4. User answers → `HandleUserMessage` → `callIntentAI()`
+5. This time: `pendingIntentResponseID` is set → use it as `previous_response_id` instead of `lastResponseID`
+6. AI continues its own branch: sees the thread + what it asked + the user's answer → routes confidently
+7. Clear `pendingIntentResponseID`, proceed with routing
+
+**Changes needed:**
+- `ConversationContext`: add `pendingIntentResponseID *string` + getter/setter
+- DB: new nullable column `pending_intent_response_id` on `conversation_context` (migration m0004)
+- `callIntentAI()`: if `pendingIntentResponseID` set → use it (continue branch); else → branch off `lastResponseID` as today
+- Intent AI schema: add `clarifying_question string` field
+- `AnalyzeIntent()`: if `clarifying_question` non-empty → store branch tip + return new `IntentClarifying` type
+- `ProcessUserIntent()`: handle `IntentClarifying` → emit `ActionUserWait` with the question
+- `RouteUserMessage()`: when resuming from `StatusWaitForUser` with a `pendingIntentResponseID` → don't treat as a normal workflow message, let intent re-analyze with the stored branch
+
+**What stays the same:**
+- `lastResponseID` is never touched by intent analyzer calls (unchanged)
+- All existing routing logic for confident intents is unchanged
+- Branch tip for clarification is stored separately from sub-workflow branches
+
+---
+
 ## Feature Checklist
 
 ### Infrastructure / Core
@@ -60,28 +121,31 @@ Mark each as `[x]` (implement), `[-]` (reject/skip), or leave blank while decidi
 
 ### AI Layer
 
-- [ ] **`BranchFromResponse` AI option**
-  A new `ai.Option` (`BranchOption{ResponseID string}`) that makes a one-shot AI call using
-  `previous_response_id`. The model sees full conversation context without the call being
-  added to the live conversation chain. The returned response ID should be discarded by callers
-  that only want read access to the context.
+- [x] **`BranchFromResponse` AI option**
+  A new `ai.Option` (`BranchOption{ResponseID string}`) that branches off an existing response.
+  The model sees full conversation context. Store the returned tip to continue the branch across
+  multiple turns, or discard it for one-shot queries. The original chain is unaffected.
+  _Implemented in GO-003. Docstring clarified 2026-03-10 to reflect multi-turn support._
 
-- [ ] **`resp_` prefix detection in `SendMessage`**
+- [x] **`resp_` prefix detection in `SendMessage`**
   When `convID` starts with `resp_`, use `PreviousResponseID` instead of `Conversation` in
   the API params. The returned conversation ID becomes `resp.ID` (the new tip) rather than the
   original `convID`. `Conversation` and `PreviousResponseID` are mutually exclusive in the API.
+  _Implemented in GO-003._
 
-- [ ] **`last_response_id` on `WorkflowContext`**
-  Track the OpenAI response ID from the most recent main-thread AI call. Persisted to DB.
-  Set by `ActionAI` for calls with no `conversationKey` (i.e. the main thread). Used by the
-  intent analyzer to branch-read context for routing ambiguous follow-ups.
+- [x] **`last_response_id` on `ConversationContext`**
+  Tracks the OpenAI response ID from the most recent main-thread AI call. Persisted to DB
+  (migration m0003). Set by `ActionAI` for calls with no `conversationKey`. Used by the intent
+  analyzer and sub-workflow seeding to branch-read context.
+  _Implemented in GO-003. Lives on `ConversationContext`, not `WorkflowContext`._
 
 ---
 
 ### Intent Routing
 
-- [ ] **4-tier confidence thresholds**
-  Replace the 2-tier system with:
+- [-] **4-tier confidence thresholds**
+Not needed - intend analyzer will use main conversation as history instead of manually handling history.
+  Replace the 2-tier system (currently 0.6 new, 0.8 change) with:
   - `idle → new workflow`: 0.70
   - `idle → historical workflow`: 0.65 (lower bar to return to a known topic)
   - `active → historical workflow`: 0.82
@@ -89,15 +153,14 @@ Mark each as `[x]` (implement), `[-]` (reject/skip), or leave blank while decidi
   When returning to a historical workflow the intent AI also picks the starting step
   (`StepInit` for restart, `StepUserAsksQuestion` for follow-up) rather than always `StepInit`.
 
-- [ ] **Workflow history in intent prompt**
-  Append the last N completed workflows (name, time ago, summary) to the intent prompt so the
-  AI can route follow-up messages back to completed topics at a lower confidence threshold.
+- [-] **Workflow history in intent prompt**
+  Not needed — the intent analyzer already branches off `lastResponseID`, giving it full thread
+  conversation history. The AI knows what was discussed without a separate history log.
 
-- [ ] **Clarifying question flow**
-  Replace `message_to_user` in the intent schema with `clarifying_question`. A non-empty value
-  triggers `ActionUserWait` (blocking) instead of a non-blocking acknowledgment. A
-  `pendingClarification` bool on `ConversationContext` prevents asking a second clarifying
-  question before the user has answered the first.
+- [ ] **Clarifying question flow** _(redesigned — see Session Updates 2026-03-10)_
+  See the new design below. The intent analyzer must store its branch tip when it asks a
+  clarifying question, so the follow-up call continues that branch and the AI already knows
+  what it asked.
 
 - [ ] **`Intent.Step` field + `Intent.NeedsUserInput` flag**
   Add an explicit `Step string` to `Intent` so the intent analyzer can specify the exact step
@@ -119,17 +182,9 @@ Mark each as `[x]` (implement), `[-]` (reject/skip), or leave blank while decidi
 
 ### Workflow History
 
-- [ ] **`WorkflowHistoryEntry` type**
-  Fields: `WorkflowName string`, `TriggerMessage string`, `Summary string`,
-  `CompletedAt time.Time`. Stored as JSON in `conversation_context.workflow_history`.
-
-- [ ] **`recordWorkflowCompletion`**
-  Called synchronously at the end of `StartHandlingActions` before marking context idle.
-  Makes a fresh (no conversation history) AI call to produce a 1-sentence summary of what
-  the workflow did, then appends a `WorkflowHistoryEntry` to the context.
-
-- [ ] **DB migration: `workflow_history` column**
-  Add nullable TEXT column `workflow_history` to `conversation_context`. Serialized as JSON.
+- [-] **`WorkflowHistoryEntry` type** — Not needed. Persistent AI conversation makes this redundant.
+- [-] **`recordWorkflowCompletion`** — Not needed. No history to record.
+- [-] **DB migration: `workflow_history` column** — Not needed.
 
 ---
 
@@ -217,13 +272,12 @@ Mark each as `[x]` (implement), `[-]` (reject/skip), or leave blank while decidi
 
 ### DB / Persistence
 
-- [ ] **`last_response_id` column on `workflow_context`**
+- [x] **`last_response_id` column on `conversation_context`**
   Nullable VARCHAR. Persisted and loaded alongside `main_conversation_id`. Used to feed
-  `BranchFromResponse` in the intent analyzer.
+  `BranchFromResponse` in the intent analyzer and sub-workflow seeding.
+  _Implemented in GO-003 (migration m0003)._
 
-- [ ] **`workflow_history` column on `conversation_context`**
-  Nullable TEXT, JSON-encoded `[]WorkflowHistoryEntry`. Loaded and unmarshaled on context load.
-  Marshaled and saved in `UpdateDB`.
+- [-] **`workflow_history` column on `conversation_context`** — Not needed.
 
 ---
 
@@ -269,10 +323,10 @@ question.
 If `QueryTicketSearcher` appeared in routing options, the AI could try to route user messages
 directly to it. Filter via `Internal` flag in `AvailableWorkflows()`.
 
-**`BranchFromResponse` gives read-only context access.**
-If you store the returned response ID and use it as the next conversation pointer, you fork
-the real conversation chain. Callers that only want context for routing should discard the
-returned response ID.
+**`BranchFromResponse` gives full context access, and the branch can be continued.**
+Store the returned response ID to continue the branch across multiple turns (e.g. sub-workflow
+conversations). Discard it only for one-shot queries (e.g. intent routing). The original
+conversation chain is always unaffected regardless of what you do with the returned ID.
 
 **`recordWorkflowCompletion` blocks before marking idle.**
 The summary AI call runs synchronously before `SetCurrentStatus(StatusIdle)`. If it hangs,

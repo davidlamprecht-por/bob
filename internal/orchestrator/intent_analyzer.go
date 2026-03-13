@@ -184,7 +184,7 @@ func buildIntentSchema() *ai.SchemaBuilder {
 		AddString("step", ai.Required(), ai.Description("The specific step to execute (use default steps when appropriate)")).
 		AddFloat("confidence", ai.Required(), ai.Description("Confidence score from 0.0 to 1.0"), ai.Range(0.0, 1.0)).
 		AddString("reasoning", ai.Required(), ai.Description("Brief explanation of why this workflow and step were chosen")).
-		AddString("message_to_user", ai.Description("Optional message to send to user if you need to mention something. Use this only when necessary as not to confuse the user! Otherwise you could write some very generic acknowledgement."))
+		AddString("message_to_user", ai.Description("Optional message to send to user if you need to mention something. Use this only when necessary as not to confuse the user!"))
 }
 
 func buildIntentPrompt(message *core.Message, ctx *core.ConversationContext) string {
@@ -215,7 +215,7 @@ func buildIntentPrompt(message *core.Message, ctx *core.ConversationContext) str
 
 	// Add workflow switch signals
 	prompt += "## Workflow Switch Signals\n"
-	prompt += "The following phrases indicate the user wants to CHANGE workflows:\n"
+	prompt += "The phrases like the following can indicate the user wants to CHANGE workflows:\n"
 	prompt += "- \"let's change the topic\" / \"change topic\" / \"switch topic\"\n"
 	prompt += "- \"switch to\" / \"move to\" / \"go to\"\n"
 	prompt += "- \"I want to [action]\" / \"I need to [action]\" where action matches a different workflow\n"
@@ -229,7 +229,7 @@ func buildIntentPrompt(message *core.Message, ctx *core.ConversationContext) str
 
 	if currentWorkflow != nil {
 		prompt += "IMPORTANT: While continuity is valuable, users can clearly signal workflow changes. "
-		prompt += "When you see workflow switch signals (listed above) AND the user's request strongly matches another workflow's keywords/description, "
+		prompt += "When you see workflow switch signals (like listed above) AND the user's request strongly matches another workflow's keywords/description, "
 		prompt += "you can naturally have higher confidence in switching workflows.\n\n"
 		prompt += "However, if only ONE of those conditions is met:\n"
 		prompt += "- Switch signal present BUT request doesn't strongly match another workflow → likely changing direction WITHIN current workflow\n"

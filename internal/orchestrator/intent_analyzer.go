@@ -14,27 +14,20 @@ const (
 	confidenceThresholdChangeWorkflow = 0.8
 )
 
-// TODO: Future Enhancement - Intent Clarification Flow
-// When the Intent AI is unsure (confidence below threshold but not zero), it should be able to:
-// 1. Ask the user a clarifying question (e.g., "Did you want to switch to querying tickets, or continue testing?")
-// 2. Interject the main orchestrator flow to wait for user response
-// 3. Re-analyze intent with the clarifying response
+// AnalyzeIntent routes the user message to the appropriate workflow and step.
+// When confidence is too low, it routes to the best-guess workflow anyway — ambiguity
+// is resolved by the workflow itself, which has full domain context.
 //
-// This requires:
-// - New data structures to track "waiting for intent clarification" state
-// - New action type (e.g., ActionIntentClarification) to pause orchestrator flow
-// - Ability to resume intent analysis after receiving clarification
-// - Storage of "pending intent options" that we're asking the user to choose between
-//
-// Benefits: Higher confidence in user intent, better UX for ambiguous requests
+// A full intent clarification flow (where the intent analyzer asks the user a question
+// before routing) is implemented on branch feature/intent-clarification.
+// See thoughts/shared/research/2026-03-13-intent-routing-ambiguity.md for the trade-off analysis.
 func AnalyzeIntent(message *core.Message, ctx *core.ConversationContext) core.Intent {
 	aiResponse, err := callIntentAI(message, ctx)
 	if err != nil {
 		return core.Intent{
-			IntentType:    core.IntentAskQuestion,
-			Confidence:    0.0,
-			Reasoning:     fmt.Sprintf("AI call failed: %v", err),
-			MessageToUser: nil,
+			IntentType: core.IntentAskQuestion,
+			Confidence: 0.0,
+			Reasoning:  fmt.Sprintf("AI call failed: %v", err),
 		}
 	}
 
@@ -47,19 +40,17 @@ func AnalyzeIntent(message *core.Message, ctx *core.ConversationContext) core.In
 	if currentWorkflow == nil {
 		if confidence < confidenceThresholdNewWorkflow {
 			return core.Intent{
-				IntentType:    core.IntentAskQuestion,
-				WorkflowName:  suggestedWorkflow,
-				Confidence:    confidence,
-				Reasoning:     fmt.Sprintf("Confidence too low (%.2f < %.2f): %s", confidence, confidenceThresholdNewWorkflow, aiResponse.Reasoning),
-				MessageToUser: aiResponse.MessageToUser,
+				IntentType:   core.IntentAskQuestion,
+				WorkflowName: suggestedWorkflow,
+				Confidence:   confidence,
+				Reasoning:    fmt.Sprintf("Confidence too low (%.2f < %.2f): %s", confidence, confidenceThresholdNewWorkflow, aiResponse.Reasoning),
 			}
 		}
 		return core.Intent{
-			IntentType:    core.IntentNewWorkflow,
-			WorkflowName:  suggestedWorkflow,
-			Confidence:    confidence,
-			Reasoning:     aiResponse.Reasoning,
-			MessageToUser: aiResponse.MessageToUser,
+			IntentType:   core.IntentNewWorkflow,
+			WorkflowName: suggestedWorkflow,
+			Confidence:   confidence,
+			Reasoning:    aiResponse.Reasoning,
 		}
 	}
 
@@ -69,32 +60,28 @@ func AnalyzeIntent(message *core.Message, ctx *core.ConversationContext) core.In
 	// AI suggests changing workflow
 	if suggestedWorkflow != currentWorkflowName {
 		if confidence < confidenceThresholdChangeWorkflow {
-			// Not confident enough to change - route to current workflow as question
 			return core.Intent{
-				IntentType:    core.IntentAskQuestion,
-				WorkflowName:  currentWorkflowName,
-				Confidence:    confidence,
-				Reasoning:     fmt.Sprintf("Uncertain input - staying with current workflow: %s", aiResponse.Reasoning),
-				MessageToUser: aiResponse.MessageToUser,
+				IntentType:   core.IntentAskQuestion,
+				WorkflowName: currentWorkflowName,
+				Confidence:   confidence,
+				Reasoning:    fmt.Sprintf("Uncertain input - staying with current workflow: %s", aiResponse.Reasoning),
 			}
 		}
 		return core.Intent{
-			IntentType:    core.IntentNewWorkflow,
-			WorkflowName:  suggestedWorkflow,
-			Confidence:    confidence,
-			Reasoning:     aiResponse.Reasoning,
-			MessageToUser: aiResponse.MessageToUser,
+			IntentType:   core.IntentNewWorkflow,
+			WorkflowName: suggestedWorkflow,
+			Confidence:   confidence,
+			Reasoning:    aiResponse.Reasoning,
 		}
 	}
 
 	// Same workflow - determine intent from step
 	intentType := mapStepToIntentType(suggestedStep)
 	return core.Intent{
-		IntentType:    intentType,
-		WorkflowName:  suggestedWorkflow,
-		Confidence:    confidence,
-		Reasoning:     aiResponse.Reasoning,
-		MessageToUser: aiResponse.MessageToUser,
+		IntentType:   intentType,
+		WorkflowName: suggestedWorkflow,
+		Confidence:   confidence,
+		Reasoning:    aiResponse.Reasoning,
 	}
 }
 
@@ -112,11 +99,10 @@ func mapStepToIntentType(step string) core.IntentType {
 }
 
 type aiIntentResponse struct {
-	WorkflowName  string
-	Step          string
-	Confidence    float64
-	Reasoning     string
-	MessageToUser *string
+	WorkflowName string
+	Step         string
+	Confidence   float64
+	Reasoning    string
 }
 
 func callIntentAI(message *core.Message, ctx *core.ConversationContext) (*aiIntentResponse, error) {
@@ -161,20 +147,11 @@ func callIntentAI(message *core.Message, ctx *core.ConversationContext) (*aiInte
 		return nil, fmt.Errorf("failed to get reasoning: %w", err)
 	}
 
-	var messageToUser *string
-	if data.IsSet("message_to_user") {
-		msg, err := data.GetString("message_to_user")
-		if err == nil && msg != "" {
-			messageToUser = &msg
-		}
-	}
-
 	return &aiIntentResponse{
-		WorkflowName:  workflowName,
-		Step:          step,
-		Confidence:    confidence,
-		Reasoning:     reasoning,
-		MessageToUser: messageToUser,
+		WorkflowName: workflowName,
+		Step:         step,
+		Confidence:   confidence,
+		Reasoning:    reasoning,
 	}, nil
 }
 
@@ -183,8 +160,7 @@ func buildIntentSchema() *ai.SchemaBuilder {
 		AddString("workflow_name", ai.Required(), ai.Description("The workflow that should handle this user message")).
 		AddString("step", ai.Required(), ai.Description("The specific step to execute (use default steps when appropriate)")).
 		AddFloat("confidence", ai.Required(), ai.Description("Confidence score from 0.0 to 1.0"), ai.Range(0.0, 1.0)).
-		AddString("reasoning", ai.Required(), ai.Description("Brief explanation of why this workflow and step were chosen")).
-		AddString("message_to_user", ai.Description("Optional message to send to user if you need to mention something. Use this only when necessary as not to confuse the user!"))
+		AddString("reasoning", ai.Required(), ai.Description("Brief explanation of why this workflow and step were chosen"))
 }
 
 func buildIntentPrompt(message *core.Message, ctx *core.ConversationContext) string {

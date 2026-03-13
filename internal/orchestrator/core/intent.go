@@ -6,10 +6,10 @@ Intent is the return data the initial ai gives to show what the user wants to do
 type Intent struct {
 	IntentType   IntentType
 	WorkflowName string
+	Step         string // explicit step override (empty = use default for IntentType)
 	Confidence   float64
 
-	Reasoning     string
-	MessageToUser *string // Optional
+	Reasoning string
 }
 
 type IntentType string

@@ -46,10 +46,6 @@ func (o *Orchestrator) HandleUserMessage(message *core.Message, responder func(r
 
 	if !shouldHandleActions{
 		logger.Debug("🛑 Not handling actions this turn")
-		// If we are not starting another run, the AI might have had something to say about it
-		if intent.MessageToUser != nil{
-			responder(core.Response{Message: *intent.MessageToUser})
-		}
 		return nil
 	}
 
@@ -78,11 +74,6 @@ func formatIntentDetails(intent core.Intent) string {
 	msg += "Workflow Name: " + intent.WorkflowName + "\n"
 	msg += "Confidence: " + fmt.Sprintf("%.2f", intent.Confidence) + "\n"
 	msg += "Reasoning: " + intent.Reasoning + "\n"
-	if intent.MessageToUser != nil && *intent.MessageToUser != "" {
-		msg += "Message to User: " + *intent.MessageToUser + "\n"
-	} else {
-		msg += "Message to User: (none)\n"
-	}
 	msg += "====================="
 	return msg
 }
@@ -109,12 +100,10 @@ func ProcessUserIntent(intent core.Intent) []*core.Action{
 	case core.IntentAskQuestion:
 		a.Input[core.InputStep] = workflow.StepUserAsksQuestion
 	}
-	actions = append(actions, a)
-	if intent.MessageToUser != nil && *intent.MessageToUser != "" {
-		a2 := core.NewAction(core.ActionUserMessage)
-		a2.Input[core.InputMessage] = intent.MessageToUser
-		actions = append(actions, a2)
+	if intent.Step != "" {
+		a.Input[core.InputStep] = intent.Step
 	}
+	actions = append(actions, a)
 	return actions
 }
 

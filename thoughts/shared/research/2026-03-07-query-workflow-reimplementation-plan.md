@@ -9,6 +9,27 @@ Mark each as `[x]` (implement), `[-]` (reject/skip), or leave blank while decidi
 
 ## Session Updates
 
+### 2026-03-13 (GO-006 decision — intent routing ambiguity)
+
+Decided **not** to implement clarifying questions in the intent analyzer on master.
+
+The intent analyzer routes greedily to the best-guess workflow. Ambiguity is resolved by the
+workflow itself, which has full domain context and will ask for any missing information as part
+of normal execution. This keeps the intent layer simple and the main conversation clean.
+
+A complete implementation of the clarifying question approach (persistent branch, synthesized
+forwarded message, 3-turn hard break) exists on `feature/intent-clarification` and is ready
+to merge if greedy routing proves insufficient.
+
+**What landed on master from this session:**
+- `Intent.Step string` — explicit step override, empty = use default for IntentType
+- `Intent.NeedsUserInput bool` — controls whether `MessageToUser` triggers `ActionUserWait` (blocking) or `ActionUserMessage`
+- `ProcessUserIntent` updated to use both fields
+
+See `thoughts/shared/research/2026-03-13-intent-routing-ambiguity.md` for the full trade-off analysis.
+
+---
+
 ### 2026-03-10 (GO-005 + small hardening)
 
 **GO-005** — In `ActionAI` (`process_actions.go`), when starting a fresh sub-conversation
@@ -157,26 +178,22 @@ Not needed - intend analyzer will use main conversation as history instead of ma
   Not needed — the intent analyzer already branches off `lastResponseID`, giving it full thread
   conversation history. The AI knows what was discussed without a separate history log.
 
-- [ ] **Clarifying question flow** _(redesigned — see Session Updates 2026-03-10)_
-  See the new design below. The intent analyzer must store its branch tip when it asks a
-  clarifying question, so the follow-up call continues that branch and the AI already knows
-  what it asked.
+- [-] **Clarifying question flow** _(not on master — see `feature/intent-clarification`)_
+  Decided against: greedy routing + workflow-level disambiguation is simpler and keeps the
+  intent layer clean. Full implementation preserved on `feature/intent-clarification`.
+  See `thoughts/shared/research/2026-03-13-intent-routing-ambiguity.md`.
 
-- [ ] **`Intent.Step` field + `Intent.NeedsUserInput` flag**
-  Add an explicit `Step string` to `Intent` so the intent analyzer can specify the exact step
-  to start (rather than always using a default). Add `NeedsUserInput bool` so
-  `ProcessUserIntent` knows whether `MessageToUser` should cause `ActionUserWait` (blocking)
-  or just be sent as an acknowledgment.
+- [x] **`Intent.Step` field + `Intent.NeedsUserInput` flag**
+  `Step string` added — `ProcessUserIntent` passes it to `ActionWorkflow` when non-empty.
+  `NeedsUserInput bool` controls whether `MessageToUser` triggers `ActionUserWait` (blocking)
+  or `ActionUserMessage`. _Implemented on master (2026-03-13)._
 
 - [ ] **`StatusWaitForUser` overrides intent step**
   When the context is in `StatusWaitForUser` and the same workflow is suggested, force
   `StepUserAnsweringQuestion` regardless of what step the AI suggested. Prevents workflow-
   specific steps from being injected when the user is simply replying to a question.
 
-- [ ] **Returning from clarifying question changes workflow if needed**
-  In `RouteUserMessage`, handle the case where the user's clarifying answer routes to a
-  different workflow than the one currently set (or when there is no current workflow). Compare
-  `intent.WorkflowName` to the current workflow and swap if different.
+- [-] **Returning from clarifying question changes workflow if needed** — not needed on master (no clarifying flow).
 
 ---
 

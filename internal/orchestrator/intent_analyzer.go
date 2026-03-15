@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"bob/definitions/personalities"
 	"bob/internal/ai"
 	"bob/internal/orchestrator/core"
 	"bob/internal/workflow"
@@ -125,7 +126,7 @@ func callIntentAI(message *core.Message, ctx *core.ConversationContext) (*aiInte
 		context.Background(),
 		nil,
 		prompt,
-		"You are an intent analyzer for Bob, a workflow-based assistant. Analyze user messages to determine the appropriate workflow and step.",
+		personalities.PersonalityIntentAnalyzerDef.Render(nil),
 		schema,
 		opts...,
 	)

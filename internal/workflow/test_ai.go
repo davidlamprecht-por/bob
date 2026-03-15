@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"bob/definitions/personalities"
 	"bob/internal/ai"
 	"bob/internal/logger"
 	"bob/internal/orchestrator/core"
@@ -44,8 +45,7 @@ func TestAI(context *core.ConversationContext, sourceAction *core.Action) ([]*co
 		}
 		aiAction1.Input[core.InputStep] = StepHandleAsyncResults
 		aiAction1.Input[core.InputMessage] = userMessage
-		aiAction1.Input[core.InputSystemPrompt] = "You are a helpful test assistant."
-		aiAction1.Input[core.InputPersonality] = ""
+		aiAction1.Input[core.InputPersonality] = personalities.SystemPrompt("You are a helpful test assistant.")
 		aiAction1.Input[core.InputSchema] = schema1
 		aiAction1.Input[core.InputConversationKey] = "" // Main conversation
 		aiAction1.SourceWorkflow = "testAI"
@@ -61,8 +61,7 @@ func TestAI(context *core.ConversationContext, sourceAction *core.Action) ([]*co
 		}
 		aiAction2.Input[core.InputStep] = StepHandleAsyncResults
 		aiAction2.Input[core.InputMessage] = "Pick a random category from: greetings, weather, or dinner. Just respond with the category name."
-		aiAction2.Input[core.InputSystemPrompt] = "You pick random categories. Respond only with one of the allowed category names."
-		aiAction2.Input[core.InputPersonality] = ""
+		aiAction2.Input[core.InputPersonality] = personalities.SystemPrompt("You pick random categories. Respond only with one of the allowed category names.")
 		aiAction2.Input[core.InputSchema] = schema2
 		aiAction2.Input[core.InputConversationKey] = "category_picker" // Separate conversation
 		aiAction2.SourceWorkflow = "testAI"

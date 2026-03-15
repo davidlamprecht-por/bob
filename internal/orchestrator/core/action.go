@@ -30,10 +30,9 @@ const (
 type InputType string
 
 const (
-	InputStep            = "step"
-	InputMessage         = "message"
-	InputSystemPrompt    = "system_prompt"
-	InputPersonality     = "personality"
+	InputStep        = "step"
+	InputMessage     = "message"
+	InputPersonality = "personality"
 	InputSchema          = "schema"
 	InputConversationKey = "conversation_key"
 	InputAsyncGroupID    = "async_group_id"
@@ -44,6 +43,7 @@ const (
 	InputToolResult      = "tool_result"      // Tool result map[string]any
 	InputWorkflowName    = "workflow_name"    // Target workflow for sub-workflow dispatch
 	InputSubWorkerID     = "sub_worker_id"   // String ID for sub-workflow instance
+	InputNoBranch        = "no_branch"       // bool: skip BranchFromResponse for this AI call
 )
 
 func NewAction(actionType ActionType) *Action{

@@ -102,8 +102,9 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 	// Call AI layer
 	logger.Debug("🤖 ActionAI: Calling ai.SendMessage")
 	goCtx := context.Background() // TODO: Pass context from higher level
+	noBranch, _ := a.Input[core.InputNoBranch].(bool)
 	var opts []ai.Option
-	if keyPtr != nil && conversationID == nil {
+	if keyPtr != nil && conversationID == nil && !noBranch {
 		if respID := ctx.GetLastResponseID(); respID != nil {
 			opts = append(opts, ai.BranchFromResponse(*respID))
 		}

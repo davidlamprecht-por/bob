@@ -2,6 +2,7 @@
 package workflow
 
 import (
+	"bob/definitions/personalities"
 	"bob/internal/ai"
 	"bob/internal/orchestrator/core"
 	"fmt"
@@ -108,6 +109,32 @@ func init() {
 			Description:    "General AI conversation and testing. Use for general questions, testing, or when no other workflow matches. Keywords: test, chat, ask, general questions.",
 			WorkflowFn:     TestAI,
 			AvailableSteps: []string{"handle_async_results", "call_tool"},
+		},
+		WorkflowTestSubWorkflow: {
+			Description:    "Tests sub-workflow dispatch and conversation context branching. Asks AI to pick a secret animal, then a sub-workflow verifies it can see the animal via context branching. Keywords: test sub, sub-workflow, context branch, branching test.",
+			WorkflowFn:     TestSubWorkflow,
+			AvailableSteps: []string{StepSubLaunchWorker},
+		},
+		WorkflowSubContextChecker: {
+			Description: "Internal sub-workflow: verifies conversation context branching by asking the AI to recall what it said in the parent conversation.",
+			Internal:    true,
+			WorkflowFn:  SubContextChecker,
+			Options: map[Option]any{
+				OptionOverwriteHandleDefaultSteps: true,
+			},
+		},
+		WorkflowAnimalVoter: {
+			Description:    "Animal preference vote. The user can specify which animals to vote on (e.g. 'vote with lion, tiger, bear') or leave it open for fun ones to be picked. Dispatches sub-workers in parallel, each choosing their favourite, then tallies and presents the winner. Keywords: animal vote, fan-out, sub-workflow test, parallel workers.",
+			WorkflowFn:     AnimalVoter,
+			AvailableSteps: []string{StepAnimalLaunchVoters, StepAnimalCollect, StepAnimalPresent},
+		},
+		WorkflowAnimalPicker: {
+			Description: "Internal sub-workflow: one voter in the animal preference poll. Asks AI to pick cat, dog, or fish, then reports back to the parent.",
+			Internal:    true,
+			WorkflowFn:  AnimalPicker,
+			Options: map[Option]any{
+				OptionOverwriteHandleDefaultSteps: true,
+			},
 		},
 	}
 	for name, def := range workflows {
@@ -223,14 +250,14 @@ func handleSideQuestion(c *core.ConversationContext, w WorkflowDefinition, a *co
 	schema := ai.NewSchema().
 		AddString("message", ai.Required(), ai.Description("The AI assistant's response to the user's question"))
 
-	systemPrompt := fmt.Sprintf("You are a helpful assistant. The user is currently working in the '%s' workflow: %s\n\nAnswer their question concisely while being aware of their current context.",
-		workflow.GetWorkflowName(), w.Description)
+	personality := personalities.PersonalitySideQuestion.Render(map[string]string{
+		"workflow_name":        workflow.GetWorkflowName(),
+		"workflow_description": w.Description,
+	})
 
 	// Use main conversation (empty key) to maintain conversation history across workflow interactions
 	// Custom keys should only be used when workflows explicitly need isolated AI contexts
-	conversationKey := ""
-
-	actions := askAI(userMessage, systemPrompt, "", schema, conversationKey)
+	actions := askAI(userMessage, personality, schema, "")
 	// Set the step on the AI action if not already set by the workflow
 	if len(actions) > 0 && actions[0].Input != nil {
 		if _, hasStep := actions[0].Input[core.InputStep]; !hasStep {

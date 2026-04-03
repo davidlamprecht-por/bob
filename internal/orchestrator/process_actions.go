@@ -7,6 +7,8 @@ import (
 	"bob/internal/tool"
 	"bob/internal/workflow"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -80,8 +82,18 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 	personality, _ := a.Input[core.InputPersonality].(string)
 	schema, _ := a.Input[core.InputSchema].(*ai.SchemaBuilder)
 	conversationKey, _ := a.Input[core.InputConversationKey].(string)
+	generateKey, _ := a.Input[core.InputGenerateKey].(bool)
 
-	logger.Debugf("🤖 ActionAI: userPrompt=%q, personality=%q, conversationKey=%q", userPrompt, personality, conversationKey)
+	// Auto-generate a unique conversation key when the caller requests it.
+	// The generated key is returned in the result action so the workflow can
+	// persist it and pass it back for multi-turn sub-conversations.
+	if generateKey {
+		b := make([]byte, 8)
+		_, _ = rand.Read(b)
+		conversationKey = hex.EncodeToString(b)
+	}
+
+	logger.Debugf("🤖 ActionAI: userPrompt=%q, personality=%q, conversationKey=%q (generated=%v)", userPrompt, personality, conversationKey, generateKey)
 
 	// Resolve conversation ID
 	wf := ctx.GetCurrentWorkflow()
@@ -144,6 +156,9 @@ func ActionAI(a *Action, ctx *ConversationContext, responder func(response Respo
 		resultAction.Input = make(map[core.InputType]any)
 	}
 	resultAction.Input[core.InputAIResponse] = response
+	// Echo back the conversation key that was used (whether provided or generated) so workflows
+	// can persist it and pass it back for multi-turn sub-conversations.
+	resultAction.Input[core.InputConversationKey] = conversationKey
 	// Copy routing inputs from source action so sub-workflow AI calls route back correctly
 	for _, key := range []core.InputType{core.InputStep, core.InputWorkflowName, core.InputSubWorkerID} {
 		if val, ok := a.Input[key]; ok {

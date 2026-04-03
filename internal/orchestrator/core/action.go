@@ -34,7 +34,22 @@ const (
 	InputMessage     = "message"
 	InputPersonality = "personality"
 	InputSchema          = "schema"
+	// InputConversationKey identifies the sub-conversation to use for an AI call.
+	// - On an outgoing ActionAi: the key to look up (or store) the conversation ID in workflow data.
+	//   Empty string means the main conversation.
+	// - On an incoming ActionWorkflowResult: the key that was actually used (whether provided by
+	//   the caller or auto-generated via InputGenerateKey). Read this to persist a generated key:
+	//
+	//   convKey, _ := getInput(sourceAction, core.InputConversationKey).(string)
+	//   wf.SetWorkflowData("my_conv", convKey)
+	//
+	//   Then pass it back on a future askAI call to continue that conversation branch.
 	InputConversationKey = "conversation_key"
+
+	// InputGenerateKey instructs ActionAI to generate a unique conversation key for a new branch.
+	// Use askAIBranch() instead of setting this directly. The generated key is returned in the
+	// result action's InputConversationKey field (see above).
+	InputGenerateKey = "generate_key"
 	InputAsyncGroupID    = "async_group_id"
 	InputAIResponse      = "ai_response"      // For storing AI response data
 	InputError           = "error"            // For error handling in results

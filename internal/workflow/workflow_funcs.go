@@ -42,3 +42,20 @@ func askAI(userMsg string, personality string, schema *ai.SchemaBuilder, convers
 
 	return []*core.Action{action}
 }
+
+// askAIBranch starts a new isolated AI sub-conversation on a unique auto-generated key.
+// The generated key is returned in the result action's InputConversationKey field, so
+// the workflow can persist it and reuse it for multi-turn sub-conversations:
+//
+//	case StepMyResult:
+//	    convKey, _ := getInput(sourceAction, core.InputConversationKey).(string)
+//	    wf.SetWorkflowData("my_conv", convKey)
+//
+//	case StepContinue:
+//	    convKey, _ := wf.GetWorkflowData("my_conv").(string)
+//	    actions := askAI(nextMsg, personality, schema, convKey)
+func askAIBranch(userMsg string, personality string, schema *ai.SchemaBuilder) []*core.Action {
+	actions := askAI(userMsg, personality, schema, "")
+	actions[0].Input[core.InputGenerateKey] = true
+	return actions
+}
